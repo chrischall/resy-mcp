@@ -1,0 +1,41 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.chrischall/resy-mcp",
+  "description": "Resy reservation management — search restaurants, book tables, manage reservations, favorites, and Priority Notify via natural language",
+  "repository": {
+    "url": "https://github.com/chrischall/resy-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "resy-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "RESY_EMAIL",
+          "description": "Your Resy account email",
+          "isRequired": true,
+          "format": "string"
+        },
+        {
+          "name": "RESY_PASSWORD",
+          "description": "Your Resy account password",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "RESY_API_KEY",
+          "description": "Override the public web-app API key (rarely needed)",
+          "isRequired": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

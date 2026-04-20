@@ -45,15 +45,20 @@ jobs:
           NEXT=$(node -p "require('./package.json').version")
           echo "NEXT_VERSION=${NEXT}" >> "$GITHUB_ENV"
 
-          # src/index.ts — MCP server version
+          # src/index.ts — MCP server version string
           sed -i "s/version: '${TAGGED_VERSION}'/version: '${NEXT}'/" src/index.ts
 
-          # manifest.json
+          # All JSON version files (manifest.json, server.json, .claude-plugin/*)
           node -e "
             const fs = require('fs');
-            const m = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
-            m.version = '${NEXT}';
-            fs.writeFileSync('manifest.json', JSON.stringify(m, null, 2) + '\n');
+            for (const f of ['manifest.json', 'server.json', '.claude-plugin/plugin.json', '.claude-plugin/marketplace.json']) {
+              const o = JSON.parse(fs.readFileSync(f, 'utf8'));
+              if (o.version !== undefined) o.version = '${NEXT}';
+              if (o.metadata?.version !== undefined) o.metadata.version = '${NEXT}';
+              if (Array.isArray(o.packages)) o.packages.forEach(p => { if (p.version !== undefined) p.version = '${NEXT}'; });
+              if (Array.isArray(o.plugins)) o.plugins.forEach(p => { if (p.version !== undefined) p.version = '${NEXT}'; });
+              fs.writeFileSync(f, JSON.stringify(o, null, 2) + '\n');
+            }
           "
 
       - name: Rebuild

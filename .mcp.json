@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "resy": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/bundle.js"],
+      "env": {
+        "RESY_EMAIL": "${RESY_EMAIL}",
+        "RESY_PASSWORD": "${RESY_PASSWORD}"
+      }
+    }
+  }
+}

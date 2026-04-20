@@ -1,0 +1,16 @@
+{
+  "name": "resy-mcp",
+  "displayName": "Resy",
+  "version": "0.1.0",
+  "description": "Resy reservation management for Claude — search restaurants, book tables, manage reservations, favorites, and Priority Notify via natural language",
+  "author": {
+    "name": "Chris Hall",
+    "email": "chris.c.hall@gmail.com"
+  },
+  "homepage": "https://github.com/chrischall/resy-mcp",
+  "repository": "https://github.com/chrischall/resy-mcp",
+  "license": "MIT",
+  "keywords": ["resy", "reservations", "restaurants", "dining", "booking", "mcp"],
+  "skills": "./SKILL.md",
+  "mcp": "./.mcp.json"
+}

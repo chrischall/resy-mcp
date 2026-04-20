@@ -2,6 +2,10 @@
 
 Guidance for Claude working in this repo.
 
+## Registry surface
+
+Each release (push a `v*` tag) fans out to: npm (with provenance), GitHub Releases (.skill + .mcpb), `modelcontextprotocol/registry` (OIDC auth), and ClawHub (if `CLAWHUB_TOKEN` secret is configured). PulseMCP auto-ingests from the MCP Registry weekly. Two registries need a one-time manual browser submission: `mcpservers.org/submit` and `clau.de/plugin-directory-submission` — see `docs/submissions/README.md` for ready-to-paste copy.
+
 ## Commands
 
 - `npm test` — vitest, mocked fetch, no network.
