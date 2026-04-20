@@ -40,10 +40,20 @@ function formatSlot(raw: RawSlot, day: string, partySize: number) {
   };
 }
 
+// Resy's canonical URL is /cities/<city-slug>/<venue-slug>. The city slug
+// follows the "<city>-<state>" convention (e.g. "new-york-ny"). When the raw
+// venue payload carries an explicit `location.url_slug`, prefer it; otherwise
+// derive a best-effort slug from locality + region.
+function deriveCitySlug(raw: RawVenue): string {
+  if (raw.location?.url_slug) return raw.location.url_slug;
+  const locality = raw.location?.locality?.toLowerCase().replace(/\s+/g, '-');
+  const region = raw.location?.region?.toLowerCase().replace(/\s+/g, '-');
+  if (locality && region) return `${locality}-${region}`;
+  return locality ?? 'new-york-ny';
+}
+
 function formatVenue(raw: RawVenue, day?: string, partySize?: number) {
-  const citySlug = (raw.location?.locality ?? 'new-york')
-    .toLowerCase()
-    .replace(/\s+/g, '-');
+  const citySlug = deriveCitySlug(raw);
   const slug = raw.url_slug ?? raw.venue_url_slug ?? '';
   return {
     venue_id: raw.id?.resy,
