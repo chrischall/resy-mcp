@@ -241,4 +241,53 @@ describe('ResyClient', () => {
     await vi.advanceTimersByTimeAsync(2000);
     await expect(promise).rejects.toThrow(/rate limited by Resy/i);
   });
+
+  it('treats 500 with auth-like body as auth failure', async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't' }),
+      })
+      .mockResolvedValueOnce({
+        ok: false, status: 500, statusText: 'Server Error',
+        headers: new Headers(),
+        text: async () => 'invalid auth token',
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't2' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ ok: 1 }),
+      });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const client = new ResyClient();
+    const data = await client.request('GET', '/x');
+    expect(data).toEqual({ ok: 1 });
+  });
+
+  it('throws on 404 with status info', async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't' }),
+      })
+      .mockResolvedValueOnce({
+        ok: false, status: 404, statusText: 'Not Found',
+        headers: new Headers(),
+        text: async () => 'missing',
+      });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const client = new ResyClient();
+    await expect(client.request('GET', '/3/venue?id=999')).rejects.toThrow(
+      /Resy API error: 404 Not Found for GET \/3\/venue\?id=999/
+    );
+  });
 });

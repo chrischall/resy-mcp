@@ -65,12 +65,19 @@ export class ResyClient {
         : {}),
     });
 
-    if ((response.status === 401 || response.status === 419) && !isRetry) {
+    const text = await response.text();
+
+    const looksLikeAuthFailure =
+      response.status === 401 ||
+      response.status === 419 ||
+      (response.status === 500 && /unauthorized|auth|token/i.test(text));
+
+    if (looksLikeAuthFailure && !isRetry) {
       this.token = null;
       await this.login();
       return this.doRequest<T>(method, path, body, true);
     }
-    if (response.status === 401 || response.status === 419) {
+    if (looksLikeAuthFailure) {
       throw new Error(
         'Resy session rejected — verify RESY_EMAIL / RESY_PASSWORD'
       );
@@ -84,12 +91,12 @@ export class ResyClient {
       throw new Error('Rate limited by Resy API');
     }
 
-    const text = await response.text();
     if (!response.ok) {
       throw new Error(
         `Resy API error: ${response.status} ${response.statusText} for ${method} ${path}`
       );
     }
+
     return (text ? JSON.parse(text) : null) as T;
   }
 
