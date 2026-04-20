@@ -42,7 +42,7 @@ export class ResyClient {
     method: string,
     path: string,
     body: ResyBody,
-    _isRetry: boolean
+    isRetry: boolean
   ): Promise<T> {
     const isForm = body instanceof URLSearchParams;
     const headers: Record<string, string> = {
@@ -64,6 +64,17 @@ export class ResyClient {
         ? { body: isForm ? (body as URLSearchParams).toString() : JSON.stringify(body) }
         : {}),
     });
+
+    if ((response.status === 401 || response.status === 419) && !isRetry) {
+      this.token = null;
+      await this.login();
+      return this.doRequest<T>(method, path, body, true);
+    }
+    if (response.status === 401 || response.status === 419) {
+      throw new Error(
+        'Resy session rejected — verify RESY_EMAIL / RESY_PASSWORD'
+      );
+    }
 
     const text = await response.text();
     if (!response.ok) {

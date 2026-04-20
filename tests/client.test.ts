@@ -93,4 +93,102 @@ describe('ResyClient', () => {
     );
     process.env.RESY_EMAIL = orig;
   });
+
+  it('re-logs in and retries once on 401', async () => {
+    const mockFetch = vi.fn()
+      // first login
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 'token-old' }),
+      })
+      // first request → 401
+      .mockResolvedValueOnce({
+        ok: false, status: 401, statusText: 'Unauthorized',
+        headers: new Headers(),
+        text: async () => 'unauthorized',
+      })
+      // second login
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 'token-new' }),
+      })
+      // retry succeeds
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ ok: true }),
+      });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const client = new ResyClient();
+    const data = await client.request('GET', '/2/user');
+
+    expect(data).toEqual({ ok: true });
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+    // retry used the new token
+    const [, retryInit] = mockFetch.mock.calls[3];
+    expect(retryInit.headers['x-resy-auth-token']).toBe('token-new');
+  });
+
+  it('throws session-rejected if second attempt also 401', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't' }),
+      })
+      .mockResolvedValueOnce({
+        ok: false, status: 401, statusText: 'Unauthorized',
+        headers: new Headers(),
+        text: async () => 'no',
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't2' }),
+      })
+      .mockResolvedValueOnce({
+        ok: false, status: 401, statusText: 'Unauthorized',
+        headers: new Headers(),
+        text: async () => 'still no',
+      })
+    );
+
+    const client = new ResyClient();
+    await expect(client.request('GET', '/x')).rejects.toThrow(
+      /session rejected.*RESY_EMAIL.*RESY_PASSWORD/
+    );
+  });
+
+  it('treats 419 the same as 401', async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't' }),
+      })
+      .mockResolvedValueOnce({
+        ok: false, status: 419, statusText: 'Authentication Timeout',
+        headers: new Headers(),
+        text: async () => 'session expired',
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't2' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ ok: 1 }),
+      });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const client = new ResyClient();
+    const data = await client.request('GET', '/x');
+    expect(data).toEqual({ ok: 1 });
+    expect(mockFetch).toHaveBeenCalledTimes(4);
+  });
 });
