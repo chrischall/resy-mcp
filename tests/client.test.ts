@@ -191,4 +191,54 @@ describe('ResyClient', () => {
     expect(data).toEqual({ ok: 1 });
     expect(mockFetch).toHaveBeenCalledTimes(4);
   });
+
+  it('retries once on 429 after 2s', async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't' }),
+      })
+      .mockResolvedValueOnce({
+        ok: false, status: 429, statusText: 'Too Many Requests',
+        headers: new Headers(),
+        text: async () => 'slow down',
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ ok: true }),
+      });
+    vi.stubGlobal('fetch', mockFetch);
+    vi.useFakeTimers();
+
+    const client = new ResyClient();
+    const promise = client.request('GET', '/x');
+    await vi.advanceTimersByTimeAsync(2000);
+    const data = await promise;
+
+    expect(data).toEqual({ ok: true });
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('throws rate-limit error if 429 persists', async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't' }),
+      })
+      .mockResolvedValue({
+        ok: false, status: 429, statusText: 'Too Many Requests',
+        headers: new Headers(),
+        text: async () => 'slow down',
+      });
+    vi.stubGlobal('fetch', mockFetch);
+    vi.useFakeTimers();
+
+    const client = new ResyClient();
+    const promise = client.request('GET', '/x');
+    await vi.advanceTimersByTimeAsync(2000);
+    await expect(promise).rejects.toThrow(/rate limited by Resy/i);
+  });
 });

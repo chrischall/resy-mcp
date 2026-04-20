@@ -76,6 +76,14 @@ export class ResyClient {
       );
     }
 
+    if (response.status === 429 && !isRetry) {
+      await new Promise<void>((r) => setTimeout(r, 2000));
+      return this.doRequest<T>(method, path, body, true);
+    }
+    if (response.status === 429) {
+      throw new Error('Rate limited by Resy API');
+    }
+
     const text = await response.text();
     if (!response.ok) {
       throw new Error(
