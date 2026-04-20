@@ -1,0 +1,53 @@
+{
+  "name": "resy-mcp",
+  "version": "0.1.0",
+  "description": "Resy MCP server for Claude — developed and maintained by AI (Claude Code)",
+  "author": "Claude Code (AI) <https://www.anthropic.com/claude>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chrischall/resy-mcp.git"
+  },
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "ai",
+    "resy",
+    "reservations",
+    "restaurants",
+    "dining",
+    "booking"
+  ],
+  "type": "module",
+  "bin": {
+    "resy-mcp": "dist/bundle.js"
+  },
+  "files": [
+    "dist",
+    ".claude-plugin",
+    ".mcp.json"
+  ],
+  "scripts": {
+    "build": "tsc && npm run bundle",
+    "bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --external:dotenv --outfile=dist/bundle.js",
+    "dev": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "smoke": "tsx scripts/smoke.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "dotenv": "^17.4.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "@vitest/coverage-v8": "^4.1.2",
+    "esbuild": "^0.28.0",
+    "tsx": "^4.19.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
+  }
+}
