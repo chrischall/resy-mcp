@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResyClient } from '../client.js';
+import { textResult } from '../mcp.js';
 
 interface RawFavoriteEntry {
   venue?: {
@@ -39,7 +40,7 @@ export function registerFavoriteTools(server: McpServer, client: ResyClient): vo
           state: v.location?.region,
           neighborhood: v.location?.neighborhood,
         }));
-      return { content: [{ type: 'text' as const, text: JSON.stringify(venues, null, 2) }] };
+      return textResult(venues);
     }
   );
 
@@ -54,8 +55,7 @@ export function registerFavoriteTools(server: McpServer, client: ResyClient): vo
     async ({ venue_id }) => {
       const body = new URLSearchParams({ venue_id: String(venue_id), favorite: '1' });
       await client.request<unknown>('POST', '/3/user/favorites', body);
-      const out = { favorited: true, venue_id };
-      return { content: [{ type: 'text' as const, text: JSON.stringify(out, null, 2) }] };
+      return textResult({ favorited: true, venue_id });
     }
   );
 
@@ -68,8 +68,7 @@ export function registerFavoriteTools(server: McpServer, client: ResyClient): vo
     async ({ venue_id }) => {
       const body = new URLSearchParams({ venue_id: String(venue_id), favorite: '0' });
       await client.request<unknown>('POST', '/3/user/favorites', body);
-      const out = { removed: true, venue_id };
-      return { content: [{ type: 'text' as const, text: JSON.stringify(out, null, 2) }] };
+      return textResult({ removed: true, venue_id });
     }
   );
 }

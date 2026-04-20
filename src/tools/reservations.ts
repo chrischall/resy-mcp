@@ -1,42 +1,169 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResyClient } from '../client.js';
-import { DEFAULT_LAT, DEFAULT_LNG, extractHHMM } from './venues.js';
+import { textResult } from '../mcp.js';
+import { findSlotsAtVenue, type FormattedSlot } from './venues.js';
 
+/**
+ * Real Resy shape from GET /3/user/reservations (verified via smoke):
+ *   { reservations: [...], venues: { "<id>": {...} }, metadata: {...} }
+ * The `venues` map is keyed by venue id as a string; venue.name lives there,
+ * NOT inline on each reservation.
+ */
 interface RawReservation {
   resy_token?: string;
-  token?: string;
   reservation_id?: number;
-  id?: number;
-  venue?: { name?: string };
-  venue_name?: string;
-  name?: string;
-  date?: string;
-  day?: string;
-  reservation_date?: string;
-  time_slot?: string;
-  time?: string;
-  start_time?: string;
+  venue?: { id?: number };
+  day?: string; // YYYY-MM-DD
+  time_slot?: string; // "19:30:00"
   num_seats?: number;
-  party_size?: number;
-  seats?: number;
   config?: { type?: string };
-  type?: string;
-  status?: string;
-}
-
-function formatReservation(r: RawReservation) {
-  return {
-    resy_token: r.resy_token ?? r.token ?? '',
-    reservation_id: r.reservation_id ?? r.id ?? 0,
-    venue_name: r.venue?.name ?? r.venue_name ?? r.name ?? 'Unknown',
-    date: r.date ?? r.day ?? r.reservation_date ?? '',
-    time: r.time_slot ?? r.time ?? r.start_time ?? '',
-    party_size: r.num_seats ?? r.party_size ?? r.seats ?? 0,
-    type: r.config?.type ?? r.type ?? 'Dining Room',
-    status: r.status,
+  occasion?: string | null;
+  special_request?: string | null;
+  cancellation?: {
+    allowed?: boolean;
+    fee?: { amount?: number; applies?: boolean; date_cut_off?: string };
   };
 }
+
+interface ReservationsResponse {
+  reservations?: RawReservation[];
+  venues?: Record<string, { name?: string }>;
+}
+
+/**
+ * Trim trailing seconds from Resy's HH:MM:SS for caller-facing output.
+ */
+function trimSeconds(t: string | undefined): string {
+  if (!t) return '';
+  const m = /^(\d{2}:\d{2})/.exec(t);
+  return m ? m[1] : t;
+}
+
+function formatReservation(
+  r: RawReservation,
+  venues: Record<string, { name?: string }>
+): {
+  resy_token: string;
+  reservation_id: number | undefined;
+  venue_id: number | undefined;
+  venue_name: string;
+  date: string;
+  time: string;
+  party_size: number;
+  type: string;
+  occasion: string | null;
+  special_request: string | null;
+  cancellable: boolean;
+  cancellation_fee?: number;
+} {
+  const venueId = r.venue?.id;
+  const venueName = venueId !== undefined ? venues[String(venueId)]?.name : undefined;
+  const fee = r.cancellation?.fee;
+  return {
+    resy_token: r.resy_token ?? '',
+    reservation_id: r.reservation_id,
+    venue_id: venueId,
+    venue_name: venueName ?? 'Unknown',
+    date: r.day ?? '',
+    time: trimSeconds(r.time_slot),
+    party_size: r.num_seats ?? 0,
+    type: r.config?.type ?? 'Dining Room',
+    occasion: r.occasion ?? null,
+    special_request: r.special_request ?? null,
+    cancellable: r.cancellation?.allowed ?? false,
+    ...(fee?.applies && fee.amount !== undefined ? { cancellation_fee: fee.amount } : {}),
+  };
+}
+
+/**
+ * Today's date in YYYY-MM-DD, in the LOCAL zone. Used for client-side scope
+ * filtering because Resy's `scope` query param is currently a no-op (all
+ * scopes return the same list).
+ */
+function todayYMD(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
+// ─── resy_book helpers ────────────────────────────────────────────────
+
+function toMinutes(t: string): number {
+  const [h, m] = t.split(':').map((n) => Number(n));
+  return h * 60 + (m || 0);
+}
+
+/**
+ * Pick the slot with exact time match; else closest by minute-delta;
+ * else the first slot. `slots` must be non-empty.
+ */
+function pickSlot(slots: FormattedSlot[], desiredTime: string | undefined): FormattedSlot {
+  if (!desiredTime) return slots[0];
+  const exact = slots.find((s) => s.time === desiredTime);
+  if (exact) return exact;
+  const desired = toMinutes(desiredTime);
+  return slots.reduce((best, s) =>
+    Math.abs(toMinutes(s.time) - desired) < Math.abs(toMinutes(best.time) - desired) ? s : best
+  );
+}
+
+interface BookingDetails {
+  book_token: string;
+  venue_name: string;
+  venue_url: string;
+  slot_type: string;
+}
+
+async function getBookingDetails(
+  client: ResyClient,
+  args: { config_token: string; date: string; party_size: number; slot_type_fallback: string }
+): Promise<BookingDetails> {
+  const params = new URLSearchParams({
+    config_id: args.config_token,
+    day: args.date,
+    party_size: String(args.party_size),
+  });
+  const details = await client.request<{
+    book_token?: { value?: string };
+    venue?: { name?: string; venue_url_slug?: string; location?: { url_slug?: string } };
+    config?: { type?: string };
+  }>('GET', `/3/details?${params.toString()}`);
+
+  const token = details.book_token?.value;
+  if (!token) throw new Error('Resy did not return a book_token for this slot');
+
+  const citySlug = details.venue?.location?.url_slug ?? 'new-york-ny';
+  const venueSlug = details.venue?.venue_url_slug ?? '';
+  return {
+    book_token: token,
+    venue_name: details.venue?.name ?? 'Restaurant',
+    venue_url: venueSlug
+      ? `https://resy.com/cities/${citySlug}/${venueSlug}`
+      : 'https://resy.com',
+    slot_type: details.config?.type ?? args.slot_type_fallback,
+  };
+}
+
+/**
+ * Return the user's default payment method id (or first available).
+ * Throws a clear user-facing error if none are on file.
+ */
+async function resolveDefaultPaymentMethod(client: ResyClient): Promise<number> {
+  const user = await client.request<{
+    payment_methods?: Array<{ id?: number; is_default?: boolean }>;
+  }>('GET', '/2/user');
+  const methods = user.payment_methods ?? [];
+  const def = methods.find((m) => m.is_default) ?? methods[0];
+  if (!def?.id) {
+    throw new Error('No payment method on file. Add one at resy.com/account before booking.');
+  }
+  return def.id;
+}
+
+// ─── tool registrations ───────────────────────────────────────────────
 
 export function registerReservationTools(
   server: McpServer,
@@ -46,25 +173,27 @@ export function registerReservationTools(
     'resy_list_reservations',
     {
       description:
-        'List the user\'s Resy reservations. Defaults to upcoming; pass scope="past" or scope="all" to broaden. Each result includes the resy_token needed for cancellation.',
+        "List the user's Resy reservations. Defaults to upcoming; pass scope=\"past\" or \"all\" to broaden. Each result includes the resy_token needed for cancellation, plus occasion/special_request/cancellability.",
       annotations: { readOnlyHint: true },
       inputSchema: {
         scope: z.enum(['upcoming', 'past', 'all']).optional(),
       },
     },
     async ({ scope }) => {
-      const scopeParam = scope ?? 'upcoming';
-      const path = `/3/user/reservations?scope=${encodeURIComponent(scopeParam)}`;
-      const data = await client.request<{
-        reservations?: RawReservation[];
-        upcoming?: RawReservation[];
-        results?: RawReservation[];
-      }>('GET', path);
-      const raw = data.reservations ?? data.upcoming ?? data.results ?? [];
-      const formatted = raw.map(formatReservation);
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(formatted, null, 2) }],
-      };
+      const scopeResolved = scope ?? 'upcoming';
+      const data = await client.request<ReservationsResponse>(
+        'GET',
+        '/3/user/reservations'
+      );
+      const venues = data.venues ?? {};
+      const today = todayYMD();
+      const filtered = (data.reservations ?? []).filter((r) => {
+        if (scopeResolved === 'all') return true;
+        const day = r.day ?? '';
+        // YYYY-MM-DD strings compare lexicographically = chronologically
+        return scopeResolved === 'upcoming' ? day >= today : day < today;
+      });
+      return textResult(filtered.map((r) => formatReservation(r, venues)));
     }
   );
 
@@ -84,23 +213,19 @@ export function registerReservationTools(
         '/3/cancel',
         body
       );
-      // Determine if the cancel actually went through. Resy's shape isn't
-      // documented; probe the common positive signals. If no signal is present
-      // but the request was HTTP-OK, default to true — `raw` carries the truth.
+      // Resy's cancel response shape isn't documented. Treat obvious failure
+      // signals as cancelled=false; otherwise assume HTTP-OK means success.
+      // Callers always get `raw` for the truth.
       const status = typeof data.status === 'string' ? data.status.toLowerCase() : undefined;
       const hasErrorField = 'error' in data || 'error_message' in data;
       const explicitSuccess =
-        (status !== undefined && /cancel/.test(status)) ||
-        data.ok === true;
+        (status !== undefined && /cancel/.test(status)) || data.ok === true;
       const explicitFailure =
         data.ok === false ||
         (status !== undefined && /fail|error|denied/.test(status)) ||
         hasErrorField;
       const cancelled = explicitSuccess || !explicitFailure;
-      const result = { cancelled, raw: data };
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
-      };
+      return textResult({ cancelled, raw: data });
     }
   );
 
@@ -108,7 +233,7 @@ export function registerReservationTools(
     'resy_book',
     {
       description:
-        'Book a reservation. Composite tool: internally runs find-slots → get booking details → book. Pass desired_time (HH:MM, 24-hour) to target a specific slot; otherwise the first available is used. Uses the user\'s default payment method unless payment_method_id is supplied.',
+        "Book a reservation. Composite tool: internally runs find-slots → get booking details → book. Pass desired_time (HH:MM, 24-hour) to target a specific slot; otherwise the first available is used. Uses the user's default payment method unless payment_method_id is supplied.",
       inputSchema: {
         venue_id: z.number().int().positive(),
         date: z.string().describe('YYYY-MM-DD'),
@@ -124,91 +249,31 @@ export function registerReservationTools(
       },
     },
     async ({ venue_id, date, party_size, desired_time, lat, lng, payment_method_id }) => {
-      // 1. find fresh slots
-      const findParams = new URLSearchParams({
-        lat: String(lat ?? DEFAULT_LAT),
-        long: String(lng ?? DEFAULT_LNG),
-        day: date,
-        party_size: String(party_size),
-        venue_id: String(venue_id),
-      });
-      const findData = await client.request<{
-        results?: { venues?: Array<{ slots?: Array<{ config?: { token?: string; type?: string }; date?: { start?: string } }> }> };
-      }>('GET', `/4/find?${findParams.toString()}`);
-      const rawSlots = findData.results?.venues?.[0]?.slots ?? [];
-      if (rawSlots.length === 0) {
+      // 1. find fresh slots (via shared helper)
+      const slots = await findSlotsAtVenue(client, { venue_id, date, party_size, lat, lng });
+      if (slots.length === 0) {
         throw new Error(
           'No available slots for this venue/date/party size. The restaurant may be fully booked.'
         );
       }
 
-      // 2. pick a slot — exact match, else closest time, else first.
-      // extractHHMM parses the string directly (no Date round-trip) so slot
-      // times aren't shifted by the caller's local timezone.
-      const slotsWithTime = rawSlots.map((s) => ({
-        token: s.config?.token ?? '',
-        type: s.config?.type ?? 'Dining Room',
-        time: extractHHMM(s.date?.start),
-      }));
-      const toMinutes = (t: string) => {
-        const [h, m] = t.split(':').map((n) => Number(n));
-        return h * 60 + (m || 0);
-      };
-      let chosen = slotsWithTime[0];
-      if (desired_time) {
-        const exact = slotsWithTime.find((s) => s.time === desired_time);
-        if (exact) {
-          chosen = exact;
-        } else {
-          const desired = toMinutes(desired_time);
-          chosen = slotsWithTime.reduce((best, s) =>
-            Math.abs(toMinutes(s.time) - desired) < Math.abs(toMinutes(best.time) - desired) ? s : best
-          );
-        }
-      }
+      // 2. pick a slot
+      const chosen = pickSlot(slots, desired_time);
 
-      // 3. get booking details for book_token
-      const detailsParams = new URLSearchParams({
-        config_id: chosen.token,
-        day: date,
-        party_size: String(party_size),
+      // 3. resolve book_token + venue metadata
+      const details = await getBookingDetails(client, {
+        config_token: chosen.config_token,
+        date,
+        party_size,
+        slot_type_fallback: chosen.type,
       });
-      const details = await client.request<{
-        book_token?: { value?: string };
-        venue?: { name?: string; venue_url_slug?: string; location?: { url_slug?: string } };
-        config?: { type?: string };
-      }>('GET', `/3/details?${detailsParams.toString()}`);
-      const bookToken = details.book_token?.value;
-      if (!bookToken) {
-        throw new Error('Resy did not return a book_token for this slot');
-      }
-      const venueName = details.venue?.name ?? 'Restaurant';
-      const slotType = details.config?.type ?? chosen.type;
-      const citySlug = details.venue?.location?.url_slug ?? 'new-york-ny';
-      const venueSlug = details.venue?.venue_url_slug ?? '';
-      const venueUrl = venueSlug
-        ? `https://resy.com/cities/${citySlug}/${venueSlug}`
-        : 'https://resy.com';
 
       // 4. resolve payment method
-      let paymentId = payment_method_id;
-      if (paymentId === undefined) {
-        const user = await client.request<{
-          payment_methods?: Array<{ id?: number; is_default?: boolean }>;
-        }>('GET', '/2/user');
-        const methods = user.payment_methods ?? [];
-        const def = methods.find((m) => m.is_default) ?? methods[0];
-        if (!def?.id) {
-          throw new Error(
-            'No payment method on file. Add one at resy.com/account before booking.'
-          );
-        }
-        paymentId = def.id;
-      }
+      const paymentId = payment_method_id ?? (await resolveDefaultPaymentMethod(client));
 
       // 5. book
       const bookBody = new URLSearchParams({
-        book_token: bookToken,
+        book_token: details.book_token,
         struct_payment_method: JSON.stringify({ id: paymentId }),
         source_id: 'resy.com-venue-details',
       });
@@ -219,17 +284,16 @@ export function registerReservationTools(
         num_seats?: number;
       }>('POST', '/3/book', bookBody);
 
-      const result = {
+      return textResult({
         resy_token: booked.resy_token,
         reservation_id: booked.reservation_id,
-        venue_name: venueName,
-        venue_url: venueUrl,
+        venue_name: details.venue_name,
+        venue_url: details.venue_url,
         date,
-        time: booked.time_slot ?? chosen.time,
+        time: trimSeconds(booked.time_slot) || chosen.time,
         party_size: booked.num_seats ?? party_size,
-        type: slotType,
-      };
-      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+        type: details.slot_type,
+      });
     }
   );
 }

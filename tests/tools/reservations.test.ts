@@ -16,52 +16,165 @@ describe('reservation tools (list/cancel)', () => {
   });
 
   describe('resy_list_reservations', () => {
-    it('GETs /3/user/reservations and normalises the payload', async () => {
+    // Real Resy shape (verified via live smoke 2026-04-20):
+    //   { reservations: [...], venues: { "<id>": {...name} } }
+    // Each reservation has venue = { id: <number> }; the name lives in the
+    // top-level venues map keyed by the venue id as a string.
+
+    const FAR_FUTURE = '2099-12-31';
+    const FAR_PAST = '2000-01-01';
+
+    function mockPayload(rez: Array<{
+      resy_token: string;
+      reservation_id: number;
+      venue_id: number;
+      day: string;
+      time_slot?: string;
+      num_seats?: number;
+      type?: string;
+      occasion?: string | null;
+      special_request?: string | null;
+      cancellable?: boolean;
+      cancellation_fee?: { amount: number; applies: boolean };
+    }>, venues: Record<string, { name: string }>) {
       mockRequest.mockResolvedValue({
-        reservations: [
-          {
-            resy_token: 'rr://abc',
-            reservation_id: 777,
-            venue: { name: 'Carbone' },
-            date: '2026-05-01',
-            time_slot: '19:00',
-            num_seats: 2,
-            config: { type: 'Dining Room' },
-            status: 'confirmed',
+        reservations: rez.map((r) => ({
+          resy_token: r.resy_token,
+          reservation_id: r.reservation_id,
+          venue: { id: r.venue_id },
+          day: r.day,
+          time_slot: r.time_slot ?? '19:00:00',
+          num_seats: r.num_seats ?? 2,
+          config: { type: r.type ?? 'Dining Room' },
+          occasion: r.occasion ?? null,
+          special_request: r.special_request ?? null,
+          cancellation: {
+            allowed: r.cancellable ?? true,
+            fee: r.cancellation_fee,
           },
-        ],
+        })),
+        venues,
       });
+    }
+
+    it('joins venue_name from the venues lookup keyed by stringified id', async () => {
+      mockPayload(
+        [{ resy_token: 'rr://a', reservation_id: 777, venue_id: 552, day: FAR_FUTURE }],
+        { '552': { name: 'The Ordinary' } }
+      );
 
       const result = await harness.callTool('resy_list_reservations');
 
       const [method, path] = mockRequest.mock.calls[0];
       expect(method).toBe('GET');
-      expect(path).toContain('/3/user/reservations');
+      expect(path).toBe('/3/user/reservations'); // no scope query — filtering is client-side
 
-      expect(result.isError).toBeFalsy();
-      const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('"venue_name": "Carbone"');
-      expect(text).toContain('"reservation_id": 777');
-      expect(text).toContain('"time": "19:00"');
-      expect(text).toContain('"party_size": 2');
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed[0].venue_name).toBe('The Ordinary');
+      expect(parsed[0].venue_id).toBe(552);
     });
 
-    it('includes scope in query string', async () => {
-      mockRequest.mockResolvedValue({ reservations: [] });
+    it('falls back to "Unknown" when venues lookup is missing', async () => {
+      mockPayload(
+        [{ resy_token: 'rr://a', reservation_id: 1, venue_id: 999, day: FAR_FUTURE }],
+        {}
+      );
+      const result = await harness.callTool('resy_list_reservations');
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed[0].venue_name).toBe('Unknown');
+    });
+
+    it('trims seconds from time_slot (19:30:00 → 19:30)', async () => {
+      mockPayload(
+        [{ resy_token: 'rr://a', reservation_id: 1, venue_id: 1, day: FAR_FUTURE, time_slot: '19:30:00' }],
+        { '1': { name: 'X' } }
+      );
+      const result = await harness.callTool('resy_list_reservations');
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed[0].time).toBe('19:30');
+    });
+
+    it('surfaces occasion, special_request, cancellable, and cancellation_fee when applicable', async () => {
+      mockPayload(
+        [{
+          resy_token: 'rr://a', reservation_id: 1, venue_id: 1, day: FAR_FUTURE,
+          occasion: 'Anniversary',
+          special_request: '6 months til our wedding',
+          cancellable: true,
+          cancellation_fee: { amount: 25, applies: true },
+        }],
+        { '1': { name: 'X' } }
+      );
+      const result = await harness.callTool('resy_list_reservations');
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed[0].occasion).toBe('Anniversary');
+      expect(parsed[0].special_request).toBe('6 months til our wedding');
+      expect(parsed[0].cancellable).toBe(true);
+      expect(parsed[0].cancellation_fee).toBe(25);
+    });
+
+    it('omits cancellation_fee when fee.applies=false', async () => {
+      mockPayload(
+        [{
+          resy_token: 'rr://a', reservation_id: 1, venue_id: 1, day: FAR_FUTURE,
+          cancellation_fee: { amount: 25, applies: false },
+        }],
+        { '1': { name: 'X' } }
+      );
+      const result = await harness.callTool('resy_list_reservations');
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed[0]).not.toHaveProperty('cancellation_fee');
+    });
+
+    it('default scope "upcoming" filters to reservations on or after today (client-side)', async () => {
+      // Resy returns the FULL list (it ignores the scope param); the tool
+      // has to filter locally.
+      mockPayload(
+        [
+          { resy_token: 'rr://future',  reservation_id: 1, venue_id: 1, day: FAR_FUTURE },
+          { resy_token: 'rr://past',    reservation_id: 2, venue_id: 1, day: FAR_PAST },
+        ],
+        { '1': { name: 'X' } }
+      );
+      const result = await harness.callTool('resy_list_reservations');
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0].resy_token).toBe('rr://future');
+    });
+
+    it('scope="past" returns only before-today reservations', async () => {
+      mockPayload(
+        [
+          { resy_token: 'rr://future', reservation_id: 1, venue_id: 1, day: FAR_FUTURE },
+          { resy_token: 'rr://past',   reservation_id: 2, venue_id: 1, day: FAR_PAST },
+        ],
+        { '1': { name: 'X' } }
+      );
+      const result = await harness.callTool('resy_list_reservations', { scope: 'past' });
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0].resy_token).toBe('rr://past');
+    });
+
+    it('scope="all" returns every reservation', async () => {
+      mockPayload(
+        [
+          { resy_token: 'rr://future', reservation_id: 1, venue_id: 1, day: FAR_FUTURE },
+          { resy_token: 'rr://past',   reservation_id: 2, venue_id: 1, day: FAR_PAST },
+        ],
+        { '1': { name: 'X' } }
+      );
+      const result = await harness.callTool('resy_list_reservations', { scope: 'all' });
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed).toHaveLength(2);
+    });
+
+    it('does not pass scope in the query string (Resy ignores it)', async () => {
+      mockPayload([], {});
       await harness.callTool('resy_list_reservations', { scope: 'past' });
       const [, path] = mockRequest.mock.calls[0];
-      expect(path).toContain('scope=past');
-    });
-
-    it('handles "upcoming" key in response instead of "reservations"', async () => {
-      mockRequest.mockResolvedValue({
-        upcoming: [
-          { resy_token: 'rr://x', reservation_id: 1, venue: { name: 'X' }, date: '2026-05-01', time_slot: '18:00', num_seats: 2 },
-        ],
-      });
-      const result = await harness.callTool('resy_list_reservations');
-      const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('"venue_name": "X"');
+      expect(path).toBe('/3/user/reservations');
+      expect(path).not.toContain('scope=');
     });
   });
 
@@ -190,7 +303,6 @@ describe('reservation tools (list/cancel)', () => {
       expect(result.isError).toBeTruthy();
       const text = (result.content[0] as { text: string }).text;
       expect(text).toMatch(/desired_time/i);
-      // Schema failed → no backend calls made
       expect(mockRequest).not.toHaveBeenCalled();
     });
 
@@ -210,17 +322,14 @@ describe('reservation tools (list/cancel)', () => {
 
     it('uses explicit payment_method_id when provided and skips /2/user', async () => {
       mockRequest
-        // find
         .mockResolvedValueOnce({
           results: { venues: [{ slots: [{ config: { token: 'cfg', type: 'DR' }, date: { start: '2026-05-01T19:00:00' } }] }] },
         })
-        // details
         .mockResolvedValueOnce({
           book_token: { value: 'BK', date_expires: '' },
           venue: { name: 'X', venue_url_slug: 'x', location: { url_slug: 'c' } },
           config: { type: 'DR' },
         })
-        // book
         .mockResolvedValueOnce({ resy_token: 'rr://', reservation_id: 1, time_slot: '19:00', num_seats: 2 });
 
       await harness.callTool('resy_book', {

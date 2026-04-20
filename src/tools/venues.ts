@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResyClient } from '../client.js';
+import { textResult } from '../mcp.js';
 
 export const DEFAULT_LAT = 40.7128;
 export const DEFAULT_LNG = -73.9876;
@@ -22,15 +23,25 @@ interface RawVenue {
   venue_url_slug?: string;
 }
 
-// Parse "HH:MM" from an ISO-ish string like "2026-05-01T19:00:00" or
-// "2026-05-01T19:00:00Z" without round-tripping through Date(), to avoid
-// timezone drift between Resy's local-restaurant time and the caller's machine.
+export interface FormattedSlot {
+  config_token: string;
+  date: string;
+  time: string;
+  party_size: number;
+  type: string;
+}
+
+/**
+ * Parse "HH:MM" directly from an ISO-ish string like "2026-05-01T19:00:00".
+ * Avoids `new Date()` so slot times aren't shifted by the caller's timezone
+ * (Resy returns times in the restaurant's local zone with no offset).
+ */
 export function extractHHMM(start: string | undefined): string {
   const m = /T(\d{2}):(\d{2})/.exec(start ?? '');
   return m ? `${m[1]}:${m[2]}` : '';
 }
 
-function formatSlot(raw: RawSlot, day: string, partySize: number) {
+function formatSlot(raw: RawSlot, day: string, partySize: number): FormattedSlot {
   return {
     config_token: raw.config?.token ?? '',
     date: day,
@@ -40,10 +51,41 @@ function formatSlot(raw: RawSlot, day: string, partySize: number) {
   };
 }
 
-// Resy's canonical URL is /cities/<city-slug>/<venue-slug>. The city slug
-// follows the "<city>-<state>" convention (e.g. "new-york-ny"). When the raw
-// venue payload carries an explicit `location.url_slug`, prefer it; otherwise
-// derive a best-effort slug from locality + region.
+/**
+ * Fetch available slots at a venue for a date + party size.
+ * Shared between `resy_find_slots` and the first step of `resy_book` so both
+ * call Resy the same way.
+ */
+export async function findSlotsAtVenue(
+  client: ResyClient,
+  args: {
+    venue_id: number;
+    date: string;
+    party_size: number;
+    lat?: number;
+    lng?: number;
+  }
+): Promise<FormattedSlot[]> {
+  const params = new URLSearchParams({
+    lat: String(args.lat ?? DEFAULT_LAT),
+    long: String(args.lng ?? DEFAULT_LNG),
+    day: args.date,
+    party_size: String(args.party_size),
+    venue_id: String(args.venue_id),
+  });
+  const data = await client.request<{
+    results?: { venues?: Array<{ slots?: RawSlot[] }> };
+  }>('GET', `/4/find?${params.toString()}`);
+  const slots = data.results?.venues?.[0]?.slots ?? [];
+  return slots.map((s) => formatSlot(s, args.date, args.party_size));
+}
+
+/**
+ * Resy's canonical URL is /cities/<city-slug>/<venue-slug>. The city slug
+ * follows the "<city>-<state>" convention (e.g. "new-york-ny"). When the raw
+ * venue payload carries an explicit `location.url_slug`, prefer it; otherwise
+ * derive a best-effort slug from locality + region.
+ */
 function deriveCitySlug(raw: RawVenue): string {
   if (raw.location?.url_slug) return raw.location.url_slug;
   const locality = raw.location?.locality?.toLowerCase().replace(/\s+/g, '-');
@@ -119,9 +161,7 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
       const formatted = hits
         .filter((h) => h.id?.resy)
         .map((h) => formatVenue(h, date, party_size));
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(formatted, null, 2) }],
-      };
+      return textResult(formatted);
     }
   );
 
@@ -139,21 +179,7 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
         lng: z.number().optional(),
       },
     },
-    async ({ venue_id, date, party_size, lat, lng }) => {
-      const params = new URLSearchParams({
-        lat: String(lat ?? DEFAULT_LAT),
-        long: String(lng ?? DEFAULT_LNG),
-        day: date,
-        party_size: String(party_size),
-        venue_id: String(venue_id),
-      });
-      const data = await client.request<{
-        results?: { venues?: Array<{ slots?: RawSlot[] }> };
-      }>('GET', `/4/find?${params.toString()}`);
-      const slots = data.results?.venues?.[0]?.slots ?? [];
-      const formatted = slots.map((s) => formatSlot(s, date, party_size));
-      return { content: [{ type: 'text' as const, text: JSON.stringify(formatted, null, 2) }] };
-    }
+    async (args) => textResult(await findSlotsAtVenue(client, args))
   );
 
   server.registerTool(
@@ -170,8 +196,7 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
         'GET',
         `/3/venue?id=${venue_id}`
       );
-      const formatted = data.venue ? formatVenue(data.venue) : null;
-      return { content: [{ type: 'text' as const, text: JSON.stringify(formatted, null, 2) }] };
+      return textResult(data.venue ? formatVenue(data.venue) : null);
     }
   );
 }

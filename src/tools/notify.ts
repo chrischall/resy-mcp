@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResyClient } from '../client.js';
+import { textResult } from '../mcp.js';
 
 interface RawNotifyEntry {
   specs?: {
@@ -18,14 +19,15 @@ interface NotifyResponse {
   notify?: RawNotifyEntry[];
 }
 
-// Resy's GET response uses "HH:MM:SS"; callers see HH:MM.
+/**
+ * Resy uses HH:MM:SS on the wire; callers see HH:MM.
+ */
 function trimSeconds(t: string | undefined): string | undefined {
   if (!t) return undefined;
   const m = /^(\d{2}:\d{2})/.exec(t);
   return m ? m[1] : t;
 }
 
-// Pad caller-supplied HH:MM to HH:MM:SS for Resy's wire format.
 function padSeconds(t: string): string {
   return t.length === 5 ? `${t}:00` : t;
 }
@@ -52,7 +54,7 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
           time_end: trimSeconds(s.time_preferred_end),
           service_type_id: s.service_type_id,
         }));
-      return { content: [{ type: 'text' as const, text: JSON.stringify(entries, null, 2) }] };
+      return textResult(entries);
     }
   );
 
@@ -84,7 +86,6 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
       },
     },
     async ({ venue_id, date, party_size, time_start, time_end, service_type_id }) => {
-      // POST /2/notify — flat form body. Note `num_seats` (not party_size).
       const body = new URLSearchParams({
         venue_id: String(venue_id),
         day: date,
@@ -94,7 +95,7 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
         service_type_id: String(service_type_id ?? 2),
       });
       const data = await client.request<Record<string, unknown>>('POST', '/2/notify', body);
-      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
+      return textResult(data);
     }
   );
 
@@ -107,7 +108,6 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
     },
     async ({ notify_id }) => {
       // DELETE /2/notify requires the FULL spec in the query string, not just the id.
-      // Look up the current subscription to extract those fields.
       const list = await client.request<NotifyResponse>('GET', '/3/notify');
       const entry = (list.notify ?? [])
         .map((e) => e.specs)
@@ -126,8 +126,7 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
         service_type_id: String(entry.service_type_id ?? 2),
       });
       await client.request<unknown>('DELETE', `/2/notify?${params.toString()}`);
-      const out = { removed: true, notify_id };
-      return { content: [{ type: 'text' as const, text: JSON.stringify(out, null, 2) }] };
+      return textResult({ removed: true, notify_id });
     }
   );
 }
