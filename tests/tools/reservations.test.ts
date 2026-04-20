@@ -183,6 +183,17 @@ describe('reservation tools (list/cancel)', () => {
       expect(text).toContain('"venue_url": "https://resy.com/cities/new-york-ny/carbone"');
     });
 
+    it('rejects malformed desired_time with a clear validation error', async () => {
+      const result = await harness.callTool('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '7pm',
+      });
+      expect(result.isError).toBeTruthy();
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/desired_time/i);
+      // Schema failed → no backend calls made
+      expect(mockRequest).not.toHaveBeenCalled();
+    });
+
     it('picks the slot closest to desired_time when exact match missing', async () => {
       queueBookMocks({
         slots: [
