@@ -1,5 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResyClient } from '../client.js';
+import { textResult } from '../mcp.js';
 
 interface RawPaymentMethod {
   id?: number;
@@ -30,7 +31,7 @@ export function registerUserTools(server: McpServer, client: ResyClient): void {
     annotations: { readOnlyHint: true },
   }, async () => {
     const data = await client.request<ResyUser>('GET', '/2/user');
-    const profile = {
+    return textResult({
       first_name: data.first_name,
       last_name: data.last_name,
       email: data.em_address,
@@ -39,8 +40,7 @@ export function registerUserTools(server: McpServer, client: ResyClient): void {
       member_since: data.date_created,
       is_resy_select: data.resy_select,
       profile_image_url: data.profile_image_url,
-    };
-    return { content: [{ type: 'text' as const, text: JSON.stringify(profile, null, 2) }] };
+    });
   });
 
   server.registerTool('resy_list_payment_methods', {
@@ -56,6 +56,6 @@ export function registerUserTools(server: McpServer, client: ResyClient): void {
       exp_year: m.exp_year,
       is_default: m.is_default ?? false,
     }));
-    return { content: [{ type: 'text' as const, text: JSON.stringify(methods, null, 2) }] };
+    return textResult(methods);
   });
 }
