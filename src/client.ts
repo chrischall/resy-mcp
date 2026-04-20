@@ -67,10 +67,13 @@ export class ResyClient {
 
     const text = await response.text();
 
+    // Narrow: match only auth-scoped phrases, not any mention of "token"
+    // (Resy occasionally says things like "book_token expired" which is a
+    // different failure and shouldn't trigger a re-login).
     const looksLikeAuthFailure =
       response.status === 401 ||
       response.status === 419 ||
-      (response.status === 500 && /unauthorized|auth|token/i.test(text));
+      (response.status === 500 && /\b(unauthorized|auth[_\s-]?token|authentication)\b/i.test(text));
 
     if (looksLikeAuthFailure && !isRetry) {
       this.token = null;

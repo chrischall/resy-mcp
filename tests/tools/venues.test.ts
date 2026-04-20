@@ -56,6 +56,9 @@ describe('venue tools', () => {
       const text = (result.content[0] as { text: string }).text;
       expect(text).toContain('"name": "Carbone"');
       expect(text).toContain('"venue_id": 101');
+      // City slug is derived from locality+region ("new-york-ny"),
+      // matching Resy's canonical URL convention.
+      expect(text).toContain('"url": "https://resy.com/cities/new-york-ny/carbone-new-york"');
     });
 
     it('respects explicit lat/lng/limit', async () => {

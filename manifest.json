@@ -53,6 +53,7 @@
   },
   "tools": [
     { "name": "resy_get_profile",        "description": "Get the authenticated Resy user's profile" },
+    { "name": "resy_list_payment_methods","description": "List saved payment methods (id, brand, last_four, is_default)" },
     { "name": "resy_search_venues",      "description": "Search venues with availability" },
     { "name": "resy_find_slots",         "description": "List available reservation slots at a venue" },
     { "name": "resy_get_venue",          "description": "Get full venue details by id" },

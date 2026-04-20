@@ -287,6 +287,30 @@ describe('ResyClient', () => {
     expect(data).toEqual({ ok: 1 });
   });
 
+  it('does NOT treat 500 with non-auth "token" phrase as auth failure', async () => {
+    // Regression guard: "book_token expired" contains "token" but is a
+    // different failure mode (stale booking token), not an auth failure.
+    // Must surface as a generic 500 error, not trigger a re-login.
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't' }),
+      })
+      .mockResolvedValueOnce({
+        ok: false, status: 500, statusText: 'Server Error',
+        headers: new Headers(),
+        text: async () => 'book_token expired',
+      });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const client = new ResyClient();
+    await expect(client.request('GET', '/3/book')).rejects.toThrow(
+      /Resy API error: 500 Server Error for GET \/3\/book/
+    );
+    expect(mockFetch).toHaveBeenCalledTimes(2); // login + request, no second login
+  });
+
   it('throws on 404 with status info', async () => {
     const mockFetch = vi.fn()
       .mockResolvedValueOnce({

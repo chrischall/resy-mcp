@@ -113,7 +113,11 @@ export function registerReservationTools(
         venue_id: z.number().int().positive(),
         date: z.string().describe('YYYY-MM-DD'),
         party_size: z.number().int().positive(),
-        desired_time: z.string().optional().describe('HH:MM (24h)'),
+        desired_time: z
+          .string()
+          .regex(/^([01]?\d|2[0-3]):[0-5]\d$/, 'desired_time must be HH:MM (24h), e.g. 19:30')
+          .optional()
+          .describe('HH:MM (24h)'),
         lat: z.number().optional(),
         lng: z.number().optional(),
         payment_method_id: z.number().int().positive().optional(),
