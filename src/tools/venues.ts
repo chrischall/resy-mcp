@@ -2,8 +2,8 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResyClient } from '../client.js';
 
-const DEFAULT_LAT = 40.7128;
-const DEFAULT_LNG = -73.9876;
+export const DEFAULT_LAT = 40.7128;
+export const DEFAULT_LNG = -73.9876;
 const DEFAULT_RADIUS_M = 16100;
 
 interface RawSlot {
@@ -22,14 +22,19 @@ interface RawVenue {
   venue_url_slug?: string;
 }
 
+// Parse "HH:MM" from an ISO-ish string like "2026-05-01T19:00:00" or
+// "2026-05-01T19:00:00Z" without round-tripping through Date(), to avoid
+// timezone drift between Resy's local-restaurant time and the caller's machine.
+export function extractHHMM(start: string | undefined): string {
+  const m = /T(\d{2}):(\d{2})/.exec(start ?? '');
+  return m ? `${m[1]}:${m[2]}` : '';
+}
+
 function formatSlot(raw: RawSlot, day: string, partySize: number) {
-  const start = new Date(raw.date?.start ?? '');
-  const hh = String(start.getHours()).padStart(2, '0');
-  const mm = String(start.getMinutes()).padStart(2, '0');
   return {
     config_token: raw.config?.token ?? '',
     date: day,
-    time: `${hh}:${mm}`,
+    time: extractHHMM(raw.date?.start),
     party_size: partySize,
     type: raw.config?.type ?? 'Dining Room',
   };

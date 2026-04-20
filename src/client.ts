@@ -109,7 +109,10 @@ export class ResyClient {
     const email = process.env.RESY_EMAIL;
     const password = process.env.RESY_PASSWORD;
     if (!email || !password) {
-      throw new Error('RESY_EMAIL and RESY_PASSWORD must be set');
+      const missing = [!email && 'RESY_EMAIL', !password && 'RESY_PASSWORD']
+        .filter(Boolean)
+        .join(' and ');
+      throw new Error(`${missing} must be set`);
     }
 
     const response = await fetch(`${BASE_URL}/3/auth/password`, {

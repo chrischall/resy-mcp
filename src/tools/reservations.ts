@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResyClient } from '../client.js';
+import { DEFAULT_LAT, DEFAULT_LNG, extractHHMM } from './venues.js';
 
 interface RawReservation {
   resy_token?: string;
@@ -83,7 +84,20 @@ export function registerReservationTools(
         '/3/cancel',
         body
       );
-      const result = { cancelled: true, raw: data };
+      // Determine if the cancel actually went through. Resy's shape isn't
+      // documented; probe the common positive signals. If no signal is present
+      // but the request was HTTP-OK, default to true — `raw` carries the truth.
+      const status = typeof data.status === 'string' ? data.status.toLowerCase() : undefined;
+      const hasErrorField = 'error' in data || 'error_message' in data;
+      const explicitSuccess =
+        (status !== undefined && /cancel/.test(status)) ||
+        data.ok === true;
+      const explicitFailure =
+        data.ok === false ||
+        (status !== undefined && /fail|error|denied/.test(status)) ||
+        hasErrorField;
+      const cancelled = explicitSuccess || !explicitFailure;
+      const result = { cancelled, raw: data };
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
       };
@@ -108,8 +122,8 @@ export function registerReservationTools(
     async ({ venue_id, date, party_size, desired_time, lat, lng, payment_method_id }) => {
       // 1. find fresh slots
       const findParams = new URLSearchParams({
-        lat: String(lat ?? 40.7128),
-        long: String(lng ?? -73.9876),
+        lat: String(lat ?? DEFAULT_LAT),
+        long: String(lng ?? DEFAULT_LNG),
         day: date,
         party_size: String(party_size),
         venue_id: String(venue_id),
@@ -124,14 +138,14 @@ export function registerReservationTools(
         );
       }
 
-      // 2. pick a slot — exact match, else closest time, else first
-      const slotsWithTime = rawSlots.map((s) => {
-        const start = new Date(s.date?.start ?? '');
-        const hh = String(start.getHours()).padStart(2, '0');
-        const mm = String(start.getMinutes()).padStart(2, '0');
-        const time = `${hh}:${mm}`;
-        return { token: s.config?.token ?? '', type: s.config?.type ?? 'Dining Room', time };
-      });
+      // 2. pick a slot — exact match, else closest time, else first.
+      // extractHHMM parses the string directly (no Date round-trip) so slot
+      // times aren't shifted by the caller's local timezone.
+      const slotsWithTime = rawSlots.map((s) => ({
+        token: s.config?.token ?? '',
+        type: s.config?.type ?? 'Dining Room',
+        time: extractHHMM(s.date?.start),
+      }));
       const toMinutes = (t: string) => {
         const [h, m] = t.split(':').map((n) => Number(n));
         return h * 60 + (m || 0);

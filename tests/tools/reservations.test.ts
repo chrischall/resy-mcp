@@ -81,6 +81,21 @@ describe('reservation tools (list/cancel)', () => {
       const text = (result.content[0] as { text: string }).text;
       expect(text).toContain('"cancelled": true');
     });
+
+    it('reports cancelled=false when Resy returns an explicit failure body', async () => {
+      mockRequest.mockResolvedValue({ ok: false, error: 'past deadline' });
+      const result = await harness.callTool('resy_cancel', { resy_token: 'rr://late' });
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain('"cancelled": false');
+      expect(text).toContain('"error": "past deadline"');
+    });
+
+    it('reports cancelled=false on a fail-shaped status string', async () => {
+      mockRequest.mockResolvedValue({ status: 'failed' });
+      const result = await harness.callTool('resy_cancel', { resy_token: 'rr://x' });
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain('"cancelled": false');
+    });
   });
 
   describe('resy_book', () => {

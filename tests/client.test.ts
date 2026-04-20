@@ -84,14 +84,27 @@ describe('ResyClient', () => {
     expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
-  it('throws at first request if RESY_EMAIL missing', async () => {
-    const orig = process.env.RESY_EMAIL;
+  it('throws naming only RESY_EMAIL when just email is missing', async () => {
+    const origEmail = process.env.RESY_EMAIL;
     process.env.RESY_EMAIL = '';
     const client = new ResyClient();
     await expect(client.request('GET', '/x')).rejects.toThrow(
-      /RESY_EMAIL and RESY_PASSWORD/
+      /^RESY_EMAIL must be set/
     );
-    process.env.RESY_EMAIL = orig;
+    process.env.RESY_EMAIL = origEmail;
+  });
+
+  it('throws naming both vars when both are missing', async () => {
+    const origEmail = process.env.RESY_EMAIL;
+    const origPw = process.env.RESY_PASSWORD;
+    process.env.RESY_EMAIL = '';
+    process.env.RESY_PASSWORD = '';
+    const client = new ResyClient();
+    await expect(client.request('GET', '/x')).rejects.toThrow(
+      /RESY_EMAIL and RESY_PASSWORD must be set/
+    );
+    process.env.RESY_EMAIL = origEmail;
+    process.env.RESY_PASSWORD = origPw;
   });
 
   it('re-logs in and retries once on 401', async () => {
