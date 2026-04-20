@@ -1,6 +1,7 @@
 {
   "name": "resy-mcp",
   "version": "0.1.0",
+  "mcpName": "io.github.chrischall/resy-mcp",
   "description": "Resy MCP server for Claude — developed and maintained by AI (Claude Code)",
   "author": "Claude Code (AI) <https://www.anthropic.com/claude>",
   "repository": {
@@ -26,7 +27,9 @@
   "files": [
     "dist",
     ".claude-plugin",
-    ".mcp.json"
+    ".mcp.json",
+    "server.json",
+    "SKILL.md"
   ],
   "scripts": {
     "build": "tsc && npm run bundle",
