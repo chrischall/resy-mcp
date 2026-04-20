@@ -14,10 +14,10 @@ interface Probe {
 }
 
 const probes: Probe[] = [
-  { name: 'GET /2/user',                run: (c) => c.request('GET', '/2/user') },
-  { name: 'GET /3/user/reservations',   run: (c) => c.request('GET', '/3/user/reservations?scope=upcoming') },
-  { name: 'GET /3/user/favorites',      run: (c) => c.request('GET', '/3/user/favorites') },
-  { name: 'GET /3/user/notify',         run: (c) => c.request('GET', '/3/user/notify') },
+  { name: 'GET /2/user',              run: (c) => c.request('GET', '/2/user') },
+  { name: 'GET /3/user/reservations', run: (c) => c.request('GET', '/3/user/reservations') },
+  { name: 'GET /3/user/favorites',    run: (c) => c.request('GET', '/3/user/favorites') },
+  { name: 'GET /3/notify',            run: (c) => c.request('GET', '/3/notify') },
 ];
 
 const client = new ResyClient();

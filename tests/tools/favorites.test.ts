@@ -15,16 +15,52 @@ describe('favorite tools', () => {
     harness = await createTestHarness((server) => registerFavoriteTools(server, mockClient));
   });
 
-  it('resy_list_favorites GETs /3/user/favorites and returns an array', async () => {
+  it('resy_list_favorites GETs /3/user/favorites and flattens results.venues[].venue', async () => {
+    // Real Resy shape (verified via live smoke):
+    //   { results: { venues: [ { venue: {...}, is_rga, favorite, ... } ] } }
     mockRequest.mockResolvedValue({
-      favorites: [
-        { id: { resy: 101 }, name: 'Carbone', url_slug: 'carbone' },
-      ],
+      query: { day: '2026-04-20', party_size: 2 },
+      results: {
+        venues: [
+          {
+            venue: {
+              id: { resy: 9575 },
+              name: "Hank's Seafood",
+              type: 'Seafood',
+              url_slug: 'hanks-seafood-restaurant',
+              price_range: 2,
+              location: { locality: 'Charleston', region: 'SC', neighborhood: 'Downtown' },
+            },
+            is_rga: 0,
+            favorite: 1,
+          },
+          // Entries missing a venue.id.resy should be filtered out defensively.
+          { venue: { name: 'Broken entry' } },
+        ],
+      },
     });
     const result = await harness.callTool('resy_list_favorites');
     expect(mockRequest).toHaveBeenCalledWith('GET', '/3/user/favorites');
+
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain('"name": "Carbone"');
+    const parsed = JSON.parse(text);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0]).toEqual({
+      venue_id: 9575,
+      name: "Hank's Seafood",
+      cuisine: 'Seafood',
+      url_slug: 'hanks-seafood-restaurant',
+      price_range: 2,
+      city: 'Charleston',
+      state: 'SC',
+      neighborhood: 'Downtown',
+    });
+  });
+
+  it('resy_list_favorites returns [] when user has no favorites', async () => {
+    mockRequest.mockResolvedValue({ results: { venues: [] } });
+    const result = await harness.callTool('resy_list_favorites');
+    expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual([]);
   });
 
   it('resy_add_favorite POSTs /3/user/favorites with venue_id', async () => {
