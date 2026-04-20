@@ -2,6 +2,21 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResyClient } from '../client.js';
 
+interface RawFavoriteEntry {
+  venue?: {
+    id?: { resy?: number };
+    name?: string;
+    type?: string;
+    url_slug?: string;
+    price_range?: number;
+    location?: { locality?: string; region?: string; neighborhood?: string };
+  };
+}
+
+interface FavoritesResponse {
+  results?: { venues?: RawFavoriteEntry[] };
+}
+
 export function registerFavoriteTools(server: McpServer, client: ResyClient): void {
   server.registerTool(
     'resy_list_favorites',
@@ -10,8 +25,21 @@ export function registerFavoriteTools(server: McpServer, client: ResyClient): vo
       annotations: { readOnlyHint: true },
     },
     async () => {
-      const data = await client.request<Record<string, unknown>>('GET', '/3/user/favorites');
-      return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
+      const data = await client.request<FavoritesResponse>('GET', '/3/user/favorites');
+      const venues = (data.results?.venues ?? [])
+        .map((entry) => entry.venue)
+        .filter((v): v is NonNullable<typeof v> => !!v?.id?.resy)
+        .map((v) => ({
+          venue_id: v.id?.resy,
+          name: v.name,
+          cuisine: v.type,
+          url_slug: v.url_slug,
+          price_range: v.price_range,
+          city: v.location?.locality,
+          state: v.location?.region,
+          neighborhood: v.location?.neighborhood,
+        }));
+      return { content: [{ type: 'text' as const, text: JSON.stringify(venues, null, 2) }] };
     }
   );
 

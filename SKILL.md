@@ -98,7 +98,7 @@ Or place `.env` in the project directory with `RESY_EMAIL=` and `RESY_PASSWORD=`
 | Tool | Description |
 |------|-------------|
 | `resy_list_notify` | List Priority Notify subscriptions. |
-| `resy_add_notify(venue_id, date, party_size, time_filter?)` | Subscribe to notifications when slots open. `time_filter` is an optional "HH:MM-HH:MM" window. |
+| `resy_add_notify(venue_id, date, party_size, time_start?, time_end?)` | Subscribe to notifications when slots open. `time_start` / `time_end` are HH:MM (24h); default window 18:00–21:00. |
 | `resy_remove_notify(notify_id)` | Cancel a Priority Notify subscription. |
 
 ## Workflows
@@ -125,7 +125,7 @@ resy_cancel(resy_token)
 **Stalking a hard-to-get table:**
 ```
 resy_search_venues(query: "4 charles prime rib", ...) → venue_id
-resy_add_notify(venue_id, date: "2026-05-31", party_size: 2, time_filter: "19:00-21:00")
+resy_add_notify(venue_id, date: "2026-05-31", party_size: 2, time_start: "19:00", time_end: "21:00")
 # Resy emails you when a slot opens
 ```
 
