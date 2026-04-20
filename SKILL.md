@@ -71,6 +71,7 @@ Or place `.env` in the project directory with `RESY_EMAIL=` and `RESY_PASSWORD=`
 | Tool | Description |
 |------|-------------|
 | `resy_get_profile` | Current user profile — name, email, phone, booking count, member-since. Payment method IDs are stripped. |
+| `resy_list_payment_methods` | List saved payment methods (`id`, `brand`, `last_four`, `exp_month`, `exp_year`, `is_default`). The `id` feeds `resy_book`'s `payment_method_id`. |
 
 ### Venues
 | Tool | Description |

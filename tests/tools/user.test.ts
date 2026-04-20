@@ -41,4 +41,41 @@ describe('user tools', () => {
       expect(text).not.toContain('payment_methods');
     });
   });
+
+  describe('resy_list_payment_methods', () => {
+    it('calls GET /2/user and returns only payment-method fields', async () => {
+      mockRequest.mockResolvedValue({
+        first_name: 'Chris',
+        em_address: 'chris@example.com',
+        payment_methods: [
+          { id: 55, brand: 'visa', last_four: '4242', exp_month: 12, exp_year: 2030, is_default: true },
+          { id: 77, brand: 'amex', display_number: '1001', exp_month: 3, exp_year: 2029 },
+        ],
+      });
+
+      const result = await harness.callTool('resy_list_payment_methods');
+
+      expect(mockRequest).toHaveBeenCalledWith('GET', '/2/user');
+      expect(result.isError).toBeFalsy();
+      const text = (result.content[0] as { text: string }).text;
+      const parsed = JSON.parse(text);
+      expect(parsed).toHaveLength(2);
+      expect(parsed[0]).toEqual({
+        id: 55, brand: 'visa', last_four: '4242', exp_month: 12, exp_year: 2030, is_default: true,
+      });
+      expect(parsed[1]).toEqual({
+        id: 77, brand: 'amex', last_four: '1001', exp_month: 3, exp_year: 2029, is_default: false,
+      });
+      // Should not leak other user fields
+      expect(text).not.toContain('chris@example.com');
+      expect(text).not.toContain('first_name');
+    });
+
+    it('returns an empty array when user has no payment methods', async () => {
+      mockRequest.mockResolvedValue({ first_name: 'Chris' });
+      const result = await harness.callTool('resy_list_payment_methods');
+      const text = (result.content[0] as { text: string }).text;
+      expect(JSON.parse(text)).toEqual([]);
+    });
+  });
 });
