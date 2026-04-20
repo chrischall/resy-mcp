@@ -43,6 +43,8 @@ export function registerFavoriteTools(server: McpServer, client: ResyClient): vo
     }
   );
 
+  // Add and remove are both POST /3/user/favorites with a toggle flag.
+  // (Resy does not use DELETE here; the web app sends favorite=1 or favorite=0.)
   server.registerTool(
     'resy_add_favorite',
     {
@@ -50,7 +52,7 @@ export function registerFavoriteTools(server: McpServer, client: ResyClient): vo
       inputSchema: { venue_id: z.number().int().positive() },
     },
     async ({ venue_id }) => {
-      const body = new URLSearchParams({ venue_id: String(venue_id) });
+      const body = new URLSearchParams({ venue_id: String(venue_id), favorite: '1' });
       await client.request<unknown>('POST', '/3/user/favorites', body);
       const out = { favorited: true, venue_id };
       return { content: [{ type: 'text' as const, text: JSON.stringify(out, null, 2) }] };
@@ -64,7 +66,8 @@ export function registerFavoriteTools(server: McpServer, client: ResyClient): vo
       inputSchema: { venue_id: z.number().int().positive() },
     },
     async ({ venue_id }) => {
-      await client.request<unknown>('DELETE', `/3/user/favorites/${venue_id}`);
+      const body = new URLSearchParams({ venue_id: String(venue_id), favorite: '0' });
+      await client.request<unknown>('POST', '/3/user/favorites', body);
       const out = { removed: true, venue_id };
       return { content: [{ type: 'text' as const, text: JSON.stringify(out, null, 2) }] };
     }

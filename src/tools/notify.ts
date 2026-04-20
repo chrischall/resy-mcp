@@ -18,16 +18,16 @@ interface NotifyResponse {
   notify?: RawNotifyEntry[];
 }
 
-// Resy sends times as "HH:MM:SS". Normalize to "HH:MM" for caller-facing output.
+// Resy's GET response uses "HH:MM:SS"; callers see HH:MM.
 function trimSeconds(t: string | undefined): string | undefined {
   if (!t) return undefined;
   const m = /^(\d{2}:\d{2})/.exec(t);
   return m ? m[1] : t;
 }
 
-// Accept HH:MM from the caller, pad to HH:MM:SS for Resy's wire format.
+// Pad caller-supplied HH:MM to HH:MM:SS for Resy's wire format.
 function padSeconds(t: string): string {
-  return /:\d{2}$/.test(t) && t.length === 5 ? `${t}:00` : t;
+  return t.length === 5 ? `${t}:00` : t;
 }
 
 export function registerNotifyTools(server: McpServer, client: ResyClient): void {
@@ -60,10 +60,10 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
     'resy_add_notify',
     {
       description:
-        "Subscribe to Priority Notify for a venue/date/party size. Resy emails you when a matching slot opens. time_start / time_end bound the window you're willing to accept (HH:MM, 24h).",
+        "Subscribe to Priority Notify for a venue/date/party size. Resy emails you when a matching slot opens. time_start / time_end bound the window you're willing to accept (HH:MM, 24h). Resy's notify booking window only accepts near-term dates (~30 days out).",
       inputSchema: {
         venue_id: z.number().int().positive(),
-        date: z.string().describe('YYYY-MM-DD'),
+        date: z.string().describe('YYYY-MM-DD (must be within Resy\'s notify window, ~30 days)'),
         party_size: z.number().int().positive(),
         time_start: z
           .string()
@@ -75,17 +75,25 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
           .regex(/^([01]?\d|2[0-3]):[0-5]\d$/, 'time_end must be HH:MM (24h)')
           .optional()
           .describe('Latest acceptable time, HH:MM. Defaults 21:00.'),
+        service_type_id: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe('Resy service type (2 = dining room, observed default)'),
       },
     },
-    async ({ venue_id, date, party_size, time_start, time_end }) => {
+    async ({ venue_id, date, party_size, time_start, time_end, service_type_id }) => {
+      // POST /2/notify — flat form body. Note `num_seats` (not party_size).
       const body = new URLSearchParams({
         venue_id: String(venue_id),
         day: date,
-        party_size: String(party_size),
+        num_seats: String(party_size),
         time_preferred_start: padSeconds(time_start ?? '18:00'),
         time_preferred_end: padSeconds(time_end ?? '21:00'),
+        service_type_id: String(service_type_id ?? 2),
       });
-      const data = await client.request<Record<string, unknown>>('POST', '/3/notify', body);
+      const data = await client.request<Record<string, unknown>>('POST', '/2/notify', body);
       return { content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }] };
     }
   );
@@ -93,11 +101,31 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
   server.registerTool(
     'resy_remove_notify',
     {
-      description: 'Cancel a Priority Notify subscription by notify_id.',
+      description:
+        'Cancel a Priority Notify subscription by notify_id. The tool looks up the full spec from resy_list_notify internally — no other input needed.',
       inputSchema: { notify_id: z.number().int().positive() },
     },
     async ({ notify_id }) => {
-      await client.request<unknown>('DELETE', `/3/notify/${notify_id}`);
+      // DELETE /2/notify requires the FULL spec in the query string, not just the id.
+      // Look up the current subscription to extract those fields.
+      const list = await client.request<NotifyResponse>('GET', '/3/notify');
+      const entry = (list.notify ?? [])
+        .map((e) => e.specs)
+        .find((s) => s?.notify_request_id === notify_id);
+      if (!entry) {
+        throw new Error(
+          `No Priority Notify subscription found with notify_id=${notify_id}. Call resy_list_notify to see current subscriptions.`
+        );
+      }
+
+      const params = new URLSearchParams({
+        notify_request_id: String(notify_id),
+        venue_id: String(entry.venue_id ?? ''),
+        day: entry.day ?? '',
+        num_seats: String(entry.party_size ?? ''),
+        service_type_id: String(entry.service_type_id ?? 2),
+      });
+      await client.request<unknown>('DELETE', `/2/notify?${params.toString()}`);
       const out = { removed: true, notify_id };
       return { content: [{ type: 'text' as const, text: JSON.stringify(out, null, 2) }] };
     }

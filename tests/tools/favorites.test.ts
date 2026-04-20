@@ -16,7 +16,7 @@ describe('favorite tools', () => {
   });
 
   it('resy_list_favorites GETs /3/user/favorites and flattens results.venues[].venue', async () => {
-    // Real Resy shape (verified via live smoke):
+    // Verified shape (live smoke 2026-04-20):
     //   { results: { venues: [ { venue: {...}, is_rga, favorite, ... } ] } }
     mockRequest.mockResolvedValue({
       query: { day: '2026-04-20', party_size: 2 },
@@ -63,23 +63,32 @@ describe('favorite tools', () => {
     expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual([]);
   });
 
-  it('resy_add_favorite POSTs /3/user/favorites with venue_id', async () => {
+  it('resy_add_favorite POSTs /3/user/favorites with venue_id + favorite=1', async () => {
+    // Verified via live smoke: Resy expects a toggle flag, not DELETE.
     mockRequest.mockResolvedValue({ ok: true });
     const result = await harness.callTool('resy_add_favorite', { venue_id: 101 });
     const [method, path, body] = mockRequest.mock.calls[0];
     expect(method).toBe('POST');
     expect(path).toBe('/3/user/favorites');
     expect(body).toBeInstanceOf(URLSearchParams);
-    expect((body as URLSearchParams).get('venue_id')).toBe('101');
+    const bb = body as URLSearchParams;
+    expect(bb.get('venue_id')).toBe('101');
+    expect(bb.get('favorite')).toBe('1');
     const text = (result.content[0] as { text: string }).text;
     expect(text).toContain('"favorited": true');
     expect(text).toContain('"venue_id": 101');
   });
 
-  it('resy_remove_favorite DELETEs /3/user/favorites/<id>', async () => {
+  it('resy_remove_favorite POSTs /3/user/favorites with venue_id + favorite=0', async () => {
     mockRequest.mockResolvedValue({ ok: true });
     const result = await harness.callTool('resy_remove_favorite', { venue_id: 101 });
-    expect(mockRequest).toHaveBeenCalledWith('DELETE', '/3/user/favorites/101');
+    const [method, path, body] = mockRequest.mock.calls[0];
+    expect(method).toBe('POST');
+    expect(path).toBe('/3/user/favorites');
+    expect(body).toBeInstanceOf(URLSearchParams);
+    const bb = body as URLSearchParams;
+    expect(bb.get('venue_id')).toBe('101');
+    expect(bb.get('favorite')).toBe('0');
     const text = (result.content[0] as { text: string }).text;
     expect(text).toContain('"removed": true');
   });
