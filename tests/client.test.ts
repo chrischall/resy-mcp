@@ -238,8 +238,11 @@ describe('ResyClient', () => {
 
     const client = new ResyClient();
     const promise = client.request('GET', '/x');
+    // Attach the rejection handler BEFORE advancing timers so the rejection
+    // is never observed as "unhandled" by Node/vitest.
+    const assertion = expect(promise).rejects.toThrow(/rate limited by Resy/i);
     await vi.advanceTimersByTimeAsync(2000);
-    await expect(promise).rejects.toThrow(/rate limited by Resy/i);
+    await assertion;
   });
 
   it('treats 500 with auth-like body as auth failure', async () => {
