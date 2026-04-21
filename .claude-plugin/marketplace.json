@@ -7,7 +7,7 @@
   },
   "metadata": {
     "description": "MCP server for Resy — restaurant reservation management via natural language (search, book, cancel, favorites, Priority Notify)",
-    "version": "0.1.0"
+    "version": "0.1.1"
   },
   "plugins": [
     {
@@ -15,14 +15,21 @@
       "displayName": "Resy",
       "source": "./",
       "description": "MCP server for Resy — search restaurants, book tables, manage reservations, favorites, and Priority Notify via natural language",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "author": {
         "name": "Chris Hall"
       },
       "homepage": "https://github.com/chrischall/resy-mcp",
       "repository": "https://github.com/chrischall/resy-mcp",
       "license": "MIT",
-      "keywords": ["resy", "reservations", "restaurants", "dining", "booking", "mcp"],
+      "keywords": [
+        "resy",
+        "reservations",
+        "restaurants",
+        "dining",
+        "booking",
+        "mcp"
+      ],
       "category": "productivity"
     }
   ]

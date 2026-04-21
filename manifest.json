@@ -3,7 +3,7 @@
   "manifest_version": "0.3",
   "name": "resy-mcp",
   "display_name": "Resy",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Resy reservation management for Claude — search venues, book tables, manage reservations and priority notify",
   "author": {
     "name": "Chris Chall",
@@ -29,7 +29,9 @@
     "entry_point": "dist/bundle.js",
     "mcp_config": {
       "command": "node",
-      "args": ["${__dirname}/dist/bundle.js"],
+      "args": [
+        "${__dirname}/dist/bundle.js"
+      ],
       "env": {
         "RESY_EMAIL": "${user_config.resy_email}",
         "RESY_PASSWORD": "${user_config.resy_password}"
@@ -52,23 +54,71 @@
     }
   },
   "tools": [
-    { "name": "resy_get_profile",        "description": "Get the authenticated Resy user's profile" },
-    { "name": "resy_list_payment_methods","description": "List saved payment methods (id, brand, last_four, is_default)" },
-    { "name": "resy_search_venues",      "description": "Search venues with availability" },
-    { "name": "resy_find_slots",         "description": "List available reservation slots at a venue" },
-    { "name": "resy_get_venue",          "description": "Get full venue details by id" },
-    { "name": "resy_book",               "description": "Book a reservation (composite: find→details→book)" },
-    { "name": "resy_list_reservations",  "description": "List upcoming/past reservations" },
-    { "name": "resy_cancel",             "description": "Cancel a reservation by resy_token" },
-    { "name": "resy_list_favorites",     "description": "List favorited venues" },
-    { "name": "resy_add_favorite",       "description": "Add a venue to favorites" },
-    { "name": "resy_remove_favorite",    "description": "Remove a venue from favorites" },
-    { "name": "resy_list_notify",        "description": "List Priority Notify subscriptions" },
-    { "name": "resy_add_notify",         "description": "Subscribe to Priority Notify" },
-    { "name": "resy_remove_notify",      "description": "Cancel a Priority Notify subscription" }
+    {
+      "name": "resy_get_profile",
+      "description": "Get the authenticated Resy user's profile"
+    },
+    {
+      "name": "resy_list_payment_methods",
+      "description": "List saved payment methods (id, brand, last_four, is_default)"
+    },
+    {
+      "name": "resy_search_venues",
+      "description": "Search venues with availability"
+    },
+    {
+      "name": "resy_find_slots",
+      "description": "List available reservation slots at a venue"
+    },
+    {
+      "name": "resy_get_venue",
+      "description": "Get full venue details by id"
+    },
+    {
+      "name": "resy_book",
+      "description": "Book a reservation (composite: find→details→book)"
+    },
+    {
+      "name": "resy_list_reservations",
+      "description": "List upcoming/past reservations"
+    },
+    {
+      "name": "resy_cancel",
+      "description": "Cancel a reservation by resy_token"
+    },
+    {
+      "name": "resy_list_favorites",
+      "description": "List favorited venues"
+    },
+    {
+      "name": "resy_add_favorite",
+      "description": "Add a venue to favorites"
+    },
+    {
+      "name": "resy_remove_favorite",
+      "description": "Remove a venue from favorites"
+    },
+    {
+      "name": "resy_list_notify",
+      "description": "List Priority Notify subscriptions"
+    },
+    {
+      "name": "resy_add_notify",
+      "description": "Subscribe to Priority Notify"
+    },
+    {
+      "name": "resy_remove_notify",
+      "description": "Cancel a Priority Notify subscription"
+    }
   ],
   "compatibility": {
-    "platforms": ["darwin", "win32", "linux"],
-    "runtimes": { "node": ">=18.0.0" }
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
   }
 }
