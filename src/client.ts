@@ -4,7 +4,10 @@ import { fileURLToPath } from 'url';
 try {
   const { config } = await import('dotenv');
   const __dirname = dirname(fileURLToPath(import.meta.url));
-  config({ path: join(__dirname, '..', '.env'), override: false });
+  // quiet: true suppresses dotenv v17's stdout telemetry banner, which
+  // Claude Desktop would otherwise try to parse as a JSON-RPC message
+  // and reject with "Invalid JSON-RPC message".
+  config({ path: join(__dirname, '..', '.env'), override: false, quiet: true });
 } catch {
   // mcpb bundle won't have dotenv — rely on process.env set by mcp_config.env
 }
