@@ -1,7 +1,7 @@
 {
   "name": "resy-mcp",
   "displayName": "Resy",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Resy reservation management for Claude — search restaurants, book tables, manage reservations, favorites, and Priority Notify via natural language",
   "author": {
     "name": "Chris Hall",
