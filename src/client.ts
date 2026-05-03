@@ -12,6 +12,20 @@ try {
   // mcpb bundle won't have dotenv — rely on process.env set by mcp_config.env
 }
 
+/**
+ * Read an env var, trim whitespace, and treat as unset if blank or if the value
+ * looks like an unsubstituted shell placeholder (e.g. `${FOO}`) — defends
+ * against MCP hosts that pass .mcp.json env blocks through unexpanded.
+ */
+function readVar(key: string): string | undefined {
+  const raw = process.env[key];
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return undefined;
+  if (/^\$\{[^}]*\}$/.test(trimmed)) return undefined;
+  return trimmed;
+}
+
 const BASE_URL = 'https://api.resy.com';
 const DEFAULT_API_KEY = 'VbWk7s3L4KiK5fzlO7JD3Q5EYolJI7n5';
 
@@ -33,7 +47,7 @@ export class ResyClient {
   private token: string | null = null;
 
   constructor() {
-    this.apiKey = process.env.RESY_API_KEY || DEFAULT_API_KEY;
+    this.apiKey = readVar('RESY_API_KEY') || DEFAULT_API_KEY;
   }
 
   async request<T>(method: string, path: string, body?: ResyBody): Promise<T> {
@@ -112,8 +126,8 @@ export class ResyClient {
   }
 
   private async login(): Promise<void> {
-    const email = process.env.RESY_EMAIL;
-    const password = process.env.RESY_PASSWORD;
+    const email = readVar('RESY_EMAIL');
+    const password = readVar('RESY_PASSWORD');
     if (!email || !password) {
       const missing = [!email && 'RESY_EMAIL', !password && 'RESY_PASSWORD']
         .filter(Boolean)
