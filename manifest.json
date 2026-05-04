@@ -3,7 +3,7 @@
   "manifest_version": "0.3",
   "name": "resy-mcp",
   "display_name": "Resy",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Resy reservation management for Claude — search venues, book tables, manage reservations and priority notify",
   "author": {
     "name": "Chris Chall",
