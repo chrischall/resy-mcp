@@ -2,12 +2,29 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 process.env.RESY_EMAIL = 'test@example.com';
 process.env.RESY_PASSWORD = 'pw';
+// Default: no token override, fetchproxy enabled. Individual tests override.
+delete process.env.RESY_AUTH_TOKEN;
+delete process.env.RESY_DISABLE_FETCHPROXY;
+
+// Mock the fetchproxy bootstrap so client tests never hit the real bridge.
+// Individual tests override mintTokenViaFetchproxy via mockResolvedValueOnce /
+// mockRejectedValueOnce.
+const mintTokenViaFetchproxy = vi.fn();
+vi.mock('../src/auth-fetchproxy.js', () => ({
+  mintTokenViaFetchproxy,
+}));
 
 const { ResyClient } = await import('../src/client.js');
 
 describe('ResyClient', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
+    mintTokenViaFetchproxy.mockReset();
+    // Per-test default: RESY_EMAIL + RESY_PASSWORD path is active.
+    process.env.RESY_EMAIL = 'test@example.com';
+    process.env.RESY_PASSWORD = 'pw';
+    delete process.env.RESY_AUTH_TOKEN;
+    delete process.env.RESY_DISABLE_FETCHPROXY;
   });
 
   afterEach(() => {
@@ -84,27 +101,50 @@ describe('ResyClient', () => {
     expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
-  it('throws naming only RESY_EMAIL when just email is missing', async () => {
-    const origEmail = process.env.RESY_EMAIL;
+  it('falls through to fetchproxy when no email is set', async () => {
     process.env.RESY_EMAIL = '';
+    mintTokenViaFetchproxy.mockResolvedValueOnce('fp-tk');
+
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true, status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: async () => JSON.stringify({ ok: 1 }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
     const client = new ResyClient();
-    await expect(client.request('GET', '/x')).rejects.toThrow(
-      /^RESY_EMAIL must be set/
-    );
-    process.env.RESY_EMAIL = origEmail;
+    const data = await client.request('GET', '/x');
+
+    expect(data).toEqual({ ok: 1 });
+    expect(mintTokenViaFetchproxy).toHaveBeenCalledTimes(1);
+    // No /3/auth/password call — fetchproxy handled it
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [, init] = mockFetch.mock.calls[0];
+    expect(init.headers['x-resy-auth-token']).toBe('fp-tk');
+    expect(init.headers['x-resy-universal-auth']).toBe('fp-tk');
   });
 
-  it('throws naming both vars when both are missing', async () => {
-    const origEmail = process.env.RESY_EMAIL;
-    const origPw = process.env.RESY_PASSWORD;
+  it('throws guidance error when no email/password and fetchproxy is disabled', async () => {
     process.env.RESY_EMAIL = '';
     process.env.RESY_PASSWORD = '';
+    process.env.RESY_DISABLE_FETCHPROXY = '1';
+
     const client = new ResyClient();
     await expect(client.request('GET', '/x')).rejects.toThrow(
-      /RESY_EMAIL and RESY_PASSWORD must be set/
+      /set RESY_EMAIL.*RESY_PASSWORD.*RESY_AUTH_TOKEN.*fetchproxy/
     );
-    process.env.RESY_EMAIL = origEmail;
-    process.env.RESY_PASSWORD = origPw;
+    expect(mintTokenViaFetchproxy).not.toHaveBeenCalled();
+  });
+
+  it('throws guidance error when fetchproxy fallback itself fails', async () => {
+    process.env.RESY_EMAIL = '';
+    process.env.RESY_PASSWORD = '';
+    mintTokenViaFetchproxy.mockRejectedValueOnce(new Error('no signed-in tab'));
+
+    const client = new ResyClient();
+    await expect(client.request('GET', '/x')).rejects.toThrow(
+      /fetchproxy fallback failed.*no signed-in tab.*RESY_EMAIL.*RESY_AUTH_TOKEN/s
+    );
   });
 
   it('re-logs in and retries once on 401', async () => {
@@ -329,5 +369,97 @@ describe('ResyClient', () => {
     await expect(client.request('GET', '/3/venue?id=999')).rejects.toThrow(
       /Resy API error: 404 Not Found for GET \/3\/venue\?id=999/
     );
+  });
+
+  // --- Auth path selection (new) -------------------------------------------
+
+  describe('auth path selection', () => {
+    it('uses RESY_AUTH_TOKEN verbatim and skips login + fetchproxy', async () => {
+      process.env.RESY_AUTH_TOKEN = 'direct-tk';
+      // No email/password fall-through
+      process.env.RESY_EMAIL = '';
+      process.env.RESY_PASSWORD = '';
+
+      const mockFetch = vi.fn().mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ ok: 1 }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const client = new ResyClient();
+      const data = await client.request('GET', '/x');
+      expect(data).toEqual({ ok: 1 });
+
+      // No login network call, no fetchproxy call
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(mintTokenViaFetchproxy).not.toHaveBeenCalled();
+
+      const [, init] = mockFetch.mock.calls[0];
+      expect(init.headers['x-resy-auth-token']).toBe('direct-tk');
+      expect(init.headers['x-resy-universal-auth']).toBe('direct-tk');
+    });
+
+    it('prefers RESY_AUTH_TOKEN even when email+password are set', async () => {
+      process.env.RESY_AUTH_TOKEN = 'direct-tk';
+      // Email & password remain set, but the override wins
+      const mockFetch = vi.fn().mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ ok: 1 }),
+      });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const client = new ResyClient();
+      await client.request('GET', '/x');
+      expect(mockFetch).toHaveBeenCalledTimes(1); // no login call
+    });
+
+    it('RESY_DISABLE_FETCHPROXY=1 skips the fetchproxy fallback', async () => {
+      process.env.RESY_EMAIL = '';
+      process.env.RESY_PASSWORD = '';
+      process.env.RESY_DISABLE_FETCHPROXY = '1';
+
+      const client = new ResyClient();
+      await expect(client.request('GET', '/x')).rejects.toThrow(
+        /set RESY_EMAIL.*RESY_AUTH_TOKEN.*fetchproxy/s
+      );
+      expect(mintTokenViaFetchproxy).not.toHaveBeenCalled();
+    });
+
+    it('refreshToken via fetchproxy on 401 retry', async () => {
+      // Start without password env so the initial token comes from fetchproxy
+      process.env.RESY_EMAIL = '';
+      process.env.RESY_PASSWORD = '';
+
+      mintTokenViaFetchproxy
+        .mockResolvedValueOnce('fp-tk-1')
+        .mockResolvedValueOnce('fp-tk-2');
+
+      const mockFetch = vi.fn()
+        // first request → 401
+        .mockResolvedValueOnce({
+          ok: false, status: 401, statusText: 'Unauthorized',
+          headers: new Headers(),
+          text: async () => 'unauthorized',
+        })
+        // retry succeeds with new token
+        .mockResolvedValueOnce({
+          ok: true, status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          text: async () => JSON.stringify({ ok: true }),
+        });
+      vi.stubGlobal('fetch', mockFetch);
+
+      const client = new ResyClient();
+      const data = await client.request('GET', '/x');
+      expect(data).toEqual({ ok: true });
+
+      // fetchproxy invoked twice (bootstrap + post-401 refresh)
+      expect(mintTokenViaFetchproxy).toHaveBeenCalledTimes(2);
+      // Second call used the refreshed token
+      const [, retryInit] = mockFetch.mock.calls[1];
+      expect(retryInit.headers['x-resy-auth-token']).toBe('fp-tk-2');
+    });
   });
 });

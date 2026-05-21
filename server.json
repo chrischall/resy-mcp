@@ -18,16 +18,29 @@
       "environmentVariables": [
         {
           "name": "RESY_EMAIL",
-          "description": "Your Resy account email",
-          "isRequired": true,
+          "description": "Your Resy account email. Optional — leave unset to use the fetchproxy browser bridge instead.",
+          "isRequired": false,
           "format": "string"
         },
         {
           "name": "RESY_PASSWORD",
-          "description": "Your Resy account password",
-          "isRequired": true,
+          "description": "Your Resy account password. Optional — leave unset to use the fetchproxy browser bridge instead.",
+          "isRequired": false,
           "format": "string",
           "isSecret": true
+        },
+        {
+          "name": "RESY_AUTH_TOKEN",
+          "description": "Pre-obtained x-resy-auth-token. Overrides email/password and the fetchproxy bridge. Power users / CI only.",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "RESY_DISABLE_FETCHPROXY",
+          "description": "Set to '1' to disable the fetchproxy fallback (forces RESY_EMAIL+PASSWORD or RESY_AUTH_TOKEN).",
+          "isRequired": false,
+          "format": "string"
         },
         {
           "name": "RESY_API_KEY",
