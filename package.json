@@ -2,7 +2,7 @@
   "name": "resy-mcp",
   "version": "0.1.5",
   "mcpName": "io.github.chrischall/resy-mcp",
-  "description": "Resy MCP server for Claude — developed and maintained by AI (Claude Code)",
+  "description": "Resy MCP server for Claude \u2014 developed and maintained by AI (Claude Code)",
   "author": "Claude Code (AI) <https://www.anthropic.com/claude>",
   "repository": {
     "type": "git",
@@ -33,7 +33,7 @@
   ],
   "scripts": {
     "build": "tsc && npm run bundle",
-    "bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --external:dotenv --outfile=dist/bundle.js",
+    "bundle": "esbuild src/index.ts --bundle --platform=node --format=esm --external:dotenv --banner:js='import { createRequire as __createRequire } from \"module\"; const require = __createRequire(import.meta.url);' --outfile=dist/bundle.js",
     "dev": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
