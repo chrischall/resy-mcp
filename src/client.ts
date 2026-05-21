@@ -1,5 +1,6 @@
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { mintTokenViaFetchproxy } from './auth-fetchproxy.js';
 
 try {
   const { config } = await import('dotenv');
@@ -95,7 +96,7 @@ export class ResyClient {
 
     if (looksLikeAuthFailure && !isRetry) {
       this.token = null;
-      await this.login();
+      await this.refreshToken();
       return this.doRequest<T>(method, path, body, true);
     }
     if (looksLikeAuthFailure) {
@@ -123,18 +124,66 @@ export class ResyClient {
 
   private async ensureAuthenticated(): Promise<void> {
     if (this.token) return;
-    await this.login();
+    await this.refreshToken();
   }
 
-  private async login(): Promise<void> {
-    const email = readVar('RESY_EMAIL');
-    const password = readVar('RESY_PASSWORD');
-    if (!email || !password) {
-      const missing = [!email && 'RESY_EMAIL', !password && 'RESY_PASSWORD']
-        .filter(Boolean)
-        .join(' and ');
-      throw new Error(`${missing} must be set`);
+  /**
+   * Resolve a fresh auth token via one of three paths, in priority order:
+   *
+   * 1. `RESY_AUTH_TOKEN` env — direct override. Power users / CI that
+   *    already have a token (e.g. extracted from a browser DevTools
+   *    session) bypass everything else.
+   * 2. `RESY_EMAIL` + `RESY_PASSWORD` env — the legacy password login
+   *    flow (`POST /3/auth/password`). Unchanged from before fetchproxy.
+   * 3. fetchproxy bootstrap — `POST /3/auth/refresh` through the user's
+   *    signed-in resy.com browser tab. Opt-out via
+   *    `RESY_DISABLE_FETCHPROXY=1`.
+   *
+   * If none of the three is configured/working, throws a guidance error
+   * naming all three remediation paths.
+   */
+  private async refreshToken(): Promise<void> {
+    // Path 1: direct token override
+    const envToken = readVar('RESY_AUTH_TOKEN');
+    if (envToken) {
+      this.token = envToken;
+      return;
     }
+
+    // Path 2: legacy password login
+    if (readVar('RESY_EMAIL') && readVar('RESY_PASSWORD')) {
+      this.token = await this.loginWithPassword();
+      return;
+    }
+
+    // Path 3: fetchproxy fallback
+    if (readVar('RESY_DISABLE_FETCHPROXY') !== '1') {
+      try {
+        this.token = await mintTokenViaFetchproxy();
+        return;
+      } catch (e) {
+        throw new Error(
+          `Resy auth: fetchproxy fallback failed (${(e as Error).message}). ` +
+            `Set RESY_EMAIL + RESY_PASSWORD, set RESY_AUTH_TOKEN directly, ` +
+            `or install the fetchproxy extension and sign into resy.com.`
+        );
+      }
+    }
+
+    throw new Error(
+      'Resy auth: set RESY_EMAIL + RESY_PASSWORD, set RESY_AUTH_TOKEN, ' +
+        'or install the fetchproxy extension and sign into resy.com.'
+    );
+  }
+
+  /**
+   * Existing password-login flow, factored out so `refreshToken()` can
+   * select between paths. Returns the token; the caller assigns it to
+   * `this.token`.
+   */
+  private async loginWithPassword(): Promise<string> {
+    const email = readVar('RESY_EMAIL')!;
+    const password = readVar('RESY_PASSWORD')!;
 
     const response = await fetch(`${BASE_URL}/3/auth/password`, {
       method: 'POST',
@@ -164,6 +213,6 @@ export class ResyClient {
         `Resy login response did not contain a token: ${text.slice(0, 200)}`
       );
     }
-    this.token = token;
+    return token;
   }
 }

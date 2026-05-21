@@ -48,6 +48,9 @@ jobs:
           # src/index.ts — MCP server version string
           sed -i "s/version: '${TAGGED_VERSION}'/version: '${NEXT}'/" src/index.ts
 
+          # src/auth-fetchproxy.ts — PACKAGE_VERSION constant (fetchproxy bridge identity)
+          sed -i "s/PACKAGE_VERSION = '${TAGGED_VERSION}'/PACKAGE_VERSION = '${NEXT}'/" src/auth-fetchproxy.ts
+
           # All JSON version files (manifest.json, server.json, .claude-plugin/*)
           node -e "
             const fs = require('fs');

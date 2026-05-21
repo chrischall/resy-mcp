@@ -1,8 +1,18 @@
 # resy-mcp
 
-MCP server for Resy. Wraps Resy's private web-app API (email/password auth + the public `api_key` baked into resy.com's JS) and exposes 14 `resy_*` tools over stdio: search venues, find slots, book/cancel reservations, manage favorites, and Priority Notify subscriptions.
+MCP server for Resy. Wraps Resy's private web-app API and exposes 14 `resy_*` tools over stdio: search venues, find slots, book/cancel reservations, manage favorites, and Priority Notify subscriptions.
 
 > Resy has no official public API. This server calls the same endpoints the resy.com web app calls. Use at your own discretion.
+
+## Auth (three paths, in priority order)
+
+The client picks an auth path on demand:
+
+1. **`RESY_AUTH_TOKEN`** — direct `x-resy-auth-token` override. Power users / CI. Skips everything else.
+2. **`RESY_EMAIL` + `RESY_PASSWORD`** — POSTs `/3/auth/password` (form-encoded), caches the returned `token`.
+3. **fetchproxy bootstrap (Pattern B)** — when neither of the above is set, calls `POST https://api.resy.com/3/auth/refresh` through the user's signed-in resy.com tab via `@fetchproxy/server`'s `FetchproxyServer.postJson`. The browser auto-attaches the HttpOnly session cookies; the response body returns `{ token: "..." }` which we use as both `x-resy-auth-token` and `x-resy-universal-auth`. After that, all API calls remain direct Node `fetch` — fetchproxy is invoked once per session bootstrap, never in the hot path. Opt-out with `RESY_DISABLE_FETCHPROXY=1`.
+
+Why Pattern B (one bootstrap call, then direct fetch) instead of Pattern A (every call through fetchproxy)? Resy's session lives in HttpOnly cookies (`localStorage` / `sessionStorage` / `IndexedDB` are auth-empty). The page's only authenticated endpoint that returns a usable token in its response body is `/3/auth/refresh` — so we bridge that one call and run everything else directly.
 
 ## Commands
 
@@ -32,9 +42,13 @@ All tools are prefixed `resy_` (14 total). The manifest's `tools[]` array in `ma
 src/
   index.ts              # MCP bootstrap — instantiates ResyClient, registers all
                         #   tool groups, connects stdio transport
-  client.ts             # ResyClient: lazy login, token caching, 401/419/
-                        #   auth-500 → re-login+retry, 429 backoff+retry,
-                        #   URLSearchParams vs JSON body detection
+  client.ts             # ResyClient: lazy auth (env-token | password | fetchproxy),
+                        #   token caching, 401/419/auth-500 → refresh+retry,
+                        #   429 backoff+retry, URLSearchParams vs JSON body
+  auth-fetchproxy.ts    # mintTokenViaFetchproxy(): single POST /3/auth/refresh
+                        #   through @fetchproxy/server's FetchproxyServer.
+                        #   Pattern B — bootstraps a token then closes the
+                        #   bridge. Direct Node fetch handles the rest.
   mcp.ts                # textResult() helper — wraps any JSON value as the
                         #   single-text-block CallToolResult every tool returns
   tools/
@@ -56,10 +70,16 @@ Each `tools/*.ts` file exports a `registerXxxTools(server, client)` function; `s
 ## Environment
 
 ```
-RESY_EMAIL=<addr>      # Required. Resy account email.
-RESY_PASSWORD=<pass>   # Required. Resy account password.
-RESY_API_KEY=<key>     # Optional. Defaults to the public web-app key baked into
-                       #   resy.com's JS. Only override if Resy rotates it.
+# All env vars are optional. Pick one of the three auth paths (see above);
+# the client tries them in this priority order on first request.
+
+RESY_AUTH_TOKEN=<tk>          # Path 1 (override). x-resy-auth-token, verbatim.
+RESY_EMAIL=<addr>             # Path 2. Resy account email.
+RESY_PASSWORD=<pass>          # Path 2. Resy account password.
+RESY_DISABLE_FETCHPROXY=1     # Opt out of the fetchproxy fallback (Path 3).
+RESY_API_KEY=<key>            # Optional. Defaults to the public web-app key
+                              #   baked into resy.com's JS. Only override if
+                              #   Resy rotates it.
 ```
 
 `src/client.ts` loads `.env` from `dirname(import.meta.url)/../.env` (i.e. the repo root next to `dist/`) via `dotenv` with `quiet: true`. Blank values, `undefined`, `null`, and unsubstituted `${FOO}` placeholders are treated as unset. The MCPB manifest / `.mcp.json` pass credentials through `env` instead.
@@ -108,15 +128,16 @@ Each `v*` tag push fans out via `.github/workflows/release.yml` to: npm (with pr
 
 ## Versioning
 
-Version appears in SEVEN places — all must match:
+Version appears in EIGHT places — all must match:
 
 1. `package.json` → `"version"`
 2. `package-lock.json` → `npm install --package-lock-only` after changing package.json (or `npm version` does it automatically)
 3. `src/index.ts` → `McpServer` constructor `version` field
-4. `manifest.json` → `"version"`
-5. `server.json` → `"version"` and `packages[].version` (two entries)
-6. `.claude-plugin/plugin.json` → `"version"`
-7. `.claude-plugin/marketplace.json` → `metadata.version` and `plugins[].version`
+4. `src/auth-fetchproxy.ts` → `PACKAGE_VERSION` constant (sent to fetchproxy as bridge identity)
+5. `manifest.json` → `"version"`
+6. `server.json` → `"version"` and `packages[].version` (two entries)
+7. `.claude-plugin/plugin.json` → `"version"`
+8. `.claude-plugin/marketplace.json` → `metadata.version` and `plugins[].version`
 
 ### Important
 
@@ -161,7 +182,8 @@ Open with `gh pr create --label <label>` (or `--label ignore-for-release` for ch
 - **ESM + NodeNext**: imports must use `.js` extensions even for `.ts` source files (e.g. `import { ResyClient } from './client.js'`).
 - **Bundle vs tsc output**: `dist/bundle.js` is the entry point everywhere (bin, manifest, .mcp.json). It is produced by `npm run bundle` (esbuild) — `tsc` alone is not enough. `npm run build` does both.
 - **stdio transport**: the server logs warnings/banners to **stderr** only — stdout is reserved for JSON-RPC. `dotenv` is loaded with `quiet: true` so it doesn't print to stdout either.
-- **Auth retry is narrow**: only `401`, `419`, or a `500` matching `\b(unauthorized|auth[_\s-]?token|authentication)\b` triggers re-login. A `500` mentioning `book_token expired` is a different failure and is *not* retried.
+- **Auth retry is narrow**: only `401`, `419`, or a `500` matching `\b(unauthorized|auth[_\s-]?token|authentication)\b` triggers a token refresh. A `500` mentioning `book_token expired` is a different failure and is *not* retried.
+- **Auth retry re-runs path selection.** On a 401, the client clears `this.token` and re-invokes the same three-path selector — so if the original token came from fetchproxy, the retry mints a fresh one via fetchproxy too. The selector doesn't pin to whichever path won the first time; an env-var change between calls would be picked up at retry time.
 - **429 retry**: single 2-second backoff, then surface the error.
 - **`resy_cancel` response is undocumented**: the tool returns `{ cancelled, raw }`. `cancelled` defaults to true on HTTP-OK absent explicit failure signals (`ok: false`, status matching `fail|error|denied`, or an `error*` field). Callers should inspect `raw` if they need certainty.
 - **Slot tokens expire fast** — `resy_find_slots` returns `config_token`s that must be exchanged for a `book_token` (via `GET /3/details`) and then booked promptly. `resy_book` does the whole chain in one call.

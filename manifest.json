@@ -34,22 +34,30 @@
       ],
       "env": {
         "RESY_EMAIL": "${user_config.resy_email}",
-        "RESY_PASSWORD": "${user_config.resy_password}"
+        "RESY_PASSWORD": "${user_config.resy_password}",
+        "RESY_AUTH_TOKEN": "${user_config.resy_auth_token}"
       }
     }
   },
   "user_config": {
     "resy_email": {
       "type": "string",
-      "title": "Resy Email",
-      "description": "Your Resy account email",
-      "required": true
+      "title": "Resy Email (optional)",
+      "description": "Your Resy account email. Leave blank to use the fetchproxy browser bridge instead.",
+      "required": false
     },
     "resy_password": {
       "type": "string",
-      "title": "Resy Password",
-      "description": "Your Resy account password",
-      "required": true,
+      "title": "Resy Password (optional)",
+      "description": "Your Resy account password. Leave blank to use the fetchproxy browser bridge instead.",
+      "required": false,
+      "sensitive": true
+    },
+    "resy_auth_token": {
+      "type": "string",
+      "title": "Resy Auth Token (optional override)",
+      "description": "Pre-obtained x-resy-auth-token. Overrides email/password and the fetchproxy bridge. Power users / CI only.",
+      "required": false,
       "sensitive": true
     }
   },
