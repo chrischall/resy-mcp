@@ -126,6 +126,16 @@ docs/submissions/   # Manual-submission copy for mcpservers.org + clau.de
 
 Each `v*` tag push fans out via `.github/workflows/release.yml` to: npm (with provenance), GitHub Releases (`.skill` + `.mcpb` artifacts), `modelcontextprotocol/registry` (OIDC), and ClawHub (only if `CLAWHUB_TOKEN` is set). PulseMCP auto-ingests from the MCP Registry weekly. Two registries need a one-time manual browser submission: `mcpservers.org/submit` and `clau.de/plugin-directory-submission` — see `docs/submissions/README.md`.
 
+## Publishing constraints
+
+The MCP Registry's [server.schema.json](https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json) caps `server.json`'s `description` at **100 characters**. Values over that fail `mcp-publisher publish` with HTTP 422 (`validation failed: expected length <= 100, location: body.description`). The other description fields (`manifest.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`) have no published length constraint and can stay longer.
+
+Sanity-check before committing a description change:
+
+```bash
+jq -r '.description | length' server.json
+```
+
 ## Versioning
 
 Version appears in EIGHT places — all must match:
