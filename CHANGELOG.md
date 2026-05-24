@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/chrischall/resy-mcp/compare/v0.2.0...v0.2.1) (2026-05-24)
+
+
+### Documentation
+
+* add Acknowledgement of Terms section to README ([#22](https://github.com/chrischall/resy-mcp/issues/22)) ([33bab4e](https://github.com/chrischall/resy-mcp/commit/33bab4e3160646c3c4cbd9208fdad7ecfcef8f72))
+* canonical auto-merge guidance ([#25](https://github.com/chrischall/resy-mcp/issues/25)) ([a044408](https://github.com/chrischall/resy-mcp/commit/a04440811968f97ae64352374068a675d99bb93a))
+
 ## [0.2.0](https://github.com/chrischall/resy-mcp/compare/v0.1.6...v0.2.0) (2026-05-23)
 
 
