@@ -185,7 +185,18 @@ For every PR, apply exactly one label so it lands in the right release-notes sec
 
 The **PR title** becomes the bullet — write it like a user-facing changelog entry (`resy_book: prefer exact-time slot match`), not internal shorthand (`booking tweaks`). Conventional-commit prefixes (`feat:`, `fix:`, `chore:`) are still fine in commit messages, but the PR title should read clean.
 
-Open with `gh pr create --label <label>` (or `--label ignore-for-release` for chores not worth a line), then **immediately** run `gh pr merge <num> --auto --squash` so the PR merges as soon as CI passes. The repo allows squash-merge only (no merge commit, no rebase) — don't pass `--merge`/`--rebase` or the call will fail.
+### How PRs merge
+
+**Don't run `gh pr merge` yourself.** The automation does it:
+
+1. `pr-auto-review.yml` runs a Claude review on every PR **except** the release-please release PR (which it deliberately skips). On a `pass` verdict it adds the `ready-to-merge` label.
+2. `auto-merge.yml`, on the `ready-to-merge` label (or on a dependabot PR), arms `gh pr merge --auto --squash`. The moment CI is green the PR squash-merges itself.
+
+For ordinary feature/fix PRs, opening with `gh pr create --label <label>` (or `--label ignore-for-release` for chores not worth a release-notes line) is the whole job. If Claude's verdict was `warn`/`fail` but you've decided to ship anyway, add the label yourself: `gh pr edit <num> --add-label ready-to-merge`.
+
+**Release PRs are the one manual touch.** release-please opens its own release PR and leaves it open as your staging artifact — `pr-auto-review.yml` skips it on purpose, so it sits there accumulating changes until you decide to ship. When you're ready, add `ready-to-merge` to it the same way: `gh pr edit <num> --add-label ready-to-merge`. The `auto-merge.yml` arm then takes over and the publish job fires the moment the release PR lands.
+
+The repo allows squash-merge only — `--merge` and `--rebase` are blocked at the branch-protection ruleset level.
 
 ## Gotchas
 
