@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/chrischall/resy-mcp/compare/v0.2.1...v0.2.2) (2026-05-25)
+
+
+### Bug Fixes
+
+* **ci:** prevent labeled event from cancelling auto-review ([#27](https://github.com/chrischall/resy-mcp/issues/27)) ([8fda9fd](https://github.com/chrischall/resy-mcp/commit/8fda9fdebabc310ece8d8f869edb1375c0b2c51c))
+
 ## [0.2.1](https://github.com/chrischall/resy-mcp/compare/v0.2.0...v0.2.1) (2026-05-24)
 
 
