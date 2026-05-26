@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4](https://github.com/chrischall/resy-mcp/compare/v0.2.3...v0.2.4) (2026-05-26)
+
+
+### Bug Fixes
+
+* **ci:** substitute repo name in publish workflow ([#32](https://github.com/chrischall/resy-mcp/issues/32)) ([b1e416c](https://github.com/chrischall/resy-mcp/commit/b1e416c05d59f632090bbf8c22cbcbfbc0e589e9))
+
 ## [0.2.3](https://github.com/chrischall/resy-mcp/compare/v0.2.2...v0.2.3) (2026-05-26)
 
 

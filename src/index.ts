@@ -9,7 +9,7 @@ import { registerFavoriteTools } from './tools/favorites.js';
 import { registerNotifyTools } from './tools/notify.js';
 
 const client = new ResyClient();
-const server = new McpServer({ name: 'resy-mcp', version: '0.2.3' }); // x-release-please-version
+const server = new McpServer({ name: 'resy-mcp', version: '0.2.4' }); // x-release-please-version
 
 registerUserTools(server, client);
 registerVenueTools(server, client);
