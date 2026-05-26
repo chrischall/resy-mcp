@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/chrischall/resy-mcp/compare/v0.2.2...v0.2.3) (2026-05-26)
+
+
+### Documentation
+
+* **claude:** warn against early PRs and call out first-party dep bumps ([#30](https://github.com/chrischall/resy-mcp/issues/30)) ([aee0bb4](https://github.com/chrischall/resy-mcp/commit/aee0bb470220c745eea79b6304d35517512afe48))
+
 ## [0.2.2](https://github.com/chrischall/resy-mcp/compare/v0.2.1...v0.2.2) (2026-05-25)
 
 
