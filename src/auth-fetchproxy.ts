@@ -16,6 +16,14 @@
  * This is "Pattern B": one bootstrap call via fetchproxy, then direct
  * fetch. It does NOT need `@fetchproxy/bootstrap` (that helper is
  * shaped for read_* verbs — cookies / localStorage / headers).
+ *
+ * As of @fetchproxy/server 0.8.0, the convenience verbs (`postJson`
+ * included) get a 30-second per-request timeout and a one-shot
+ * lazy-revive retry on Chrome MV3 service-worker eviction (2000ms
+ * default) for free — no local wrapper needed. `postJson` throws
+ * typed `FetchproxyBridgeDownError` / `FetchproxyTimeoutError` on
+ * bridge failures; the catch in `client.ts` surfaces them as a
+ * guidance error.
  */
 import { FetchproxyServer } from '@fetchproxy/server';
 
