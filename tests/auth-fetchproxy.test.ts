@@ -50,13 +50,15 @@ describe('mintTokenViaFetchproxy', () => {
     expect(mockConstructor).toHaveBeenCalledTimes(1);
     const opts = mockConstructor.mock.calls[0][0] as {
       domains: string[];
-      keepAliveIntervalMs: number;
+      keepAliveIntervalMs?: number;
     };
     expect(opts.domains).toEqual(['resy.com']);
-    // fetchproxy#71 — opt into keep-alive pings so the SW stays resident
-    // through long sessions and token-refresh round-trips don't pay a
-    // cold-revive penalty.
-    expect(opts.keepAliveIntervalMs).toBe(25_000);
+    // We used to opt into keep-alive pings (keepAliveIntervalMs: 25_000) so
+    // the SW stayed resident through long sessions and token-refresh
+    // round-trips didn't pay a cold-revive penalty. @fetchproxy/server
+    // 0.10.0 makes 25_000 the server default (fetchproxy#72), so we pass
+    // nothing for it now and rely on that default.
+    expect(opts.keepAliveIntervalMs).toBeUndefined();
     // listen() before any request
     expect(mockListen).toHaveBeenCalledTimes(1);
     // postJson targets api.resy.com

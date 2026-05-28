@@ -50,8 +50,9 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
     serverName: PACKAGE_NAME,
     version: PACKAGE_VERSION,
     domains: ['resy.com'],
-    // fetchproxy#71 — keep SW resident for capture-mode token-refresh window
-    keepAliveIntervalMs: 25_000,
+    // keepAliveIntervalMs is no longer set here: @fetchproxy/server 0.10.0
+    // defaults it to 25_000 — the same cadence we relied on to keep the SW
+    // resident through the token-refresh window (fetchproxy#72).
   });
 
   try {
