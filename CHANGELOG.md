@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/chrischall/resy-mcp/compare/v0.3.0...v0.4.0) (2026-05-28)
+
+
+### Features
+
+* **auth-fetchproxy:** bump @fetchproxy/server to 0.9.x + opt into keepAliveIntervalMs (closes [#37](https://github.com/chrischall/resy-mcp/issues/37)) ([#38](https://github.com/chrischall/resy-mcp/issues/38)) ([bc1d83f](https://github.com/chrischall/resy-mcp/commit/bc1d83f61933c2387401f21851c924d1d06cf56e))
+
 ## [0.3.0](https://github.com/chrischall/resy-mcp/compare/v0.2.4...v0.3.0) (2026-05-27)
 
 
