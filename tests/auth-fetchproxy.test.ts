@@ -48,8 +48,15 @@ describe('mintTokenViaFetchproxy', () => {
     expect(token).toBe('fresh-tk');
     // Construction declared the right trust boundary
     expect(mockConstructor).toHaveBeenCalledTimes(1);
-    const opts = mockConstructor.mock.calls[0][0] as { domains: string[] };
+    const opts = mockConstructor.mock.calls[0][0] as {
+      domains: string[];
+      keepAliveIntervalMs: number;
+    };
     expect(opts.domains).toEqual(['resy.com']);
+    // fetchproxy#71 — opt into keep-alive pings so the SW stays resident
+    // through long sessions and token-refresh round-trips don't pay a
+    // cold-revive penalty.
+    expect(opts.keepAliveIntervalMs).toBe(25_000);
     // listen() before any request
     expect(mockListen).toHaveBeenCalledTimes(1);
     // postJson targets api.resy.com
