@@ -50,6 +50,8 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
     serverName: PACKAGE_NAME,
     version: PACKAGE_VERSION,
     domains: ['resy.com'],
+    // fetchproxy#71 — keep SW resident for capture-mode token-refresh window
+    keepAliveIntervalMs: 25_000,
   });
 
   try {
