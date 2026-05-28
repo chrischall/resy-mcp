@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/chrischall/resy-mcp/compare/v0.2.4...v0.3.0) (2026-05-27)
+
+
+### Features
+
+* **auth-fetchproxy:** adopt @fetchproxy/server 0.8.0 ([#35](https://github.com/chrischall/resy-mcp/issues/35)) ([1149c8d](https://github.com/chrischall/resy-mcp/commit/1149c8d76a453f045d881312bdc8ea4a0b70d48f))
+
 ## [0.2.4](https://github.com/chrischall/resy-mcp/compare/v0.2.3...v0.2.4) (2026-05-26)
 
 
