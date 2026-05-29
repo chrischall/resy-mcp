@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0](https://github.com/chrischall/resy-mcp/compare/v0.4.0...v0.5.0) (2026-05-29)
+
+
+### Features
+
+* adopt @fetchproxy/server 0.11.0 ([#44](https://github.com/chrischall/resy-mcp/issues/44)) ([b89a0b0](https://github.com/chrischall/resy-mcp/commit/b89a0b0613e3a5efe3b8bfafd61af3ff7502f204))
+
+
+### Bug Fixes
+
+* **ci:** arm auto-merge from verdict comment when structured_output is empty ([#43](https://github.com/chrischall/resy-mcp/issues/43)) ([a30fddb](https://github.com/chrischall/resy-mcp/commit/a30fddba48950d305b1c8afe63c04e2cad73d6bd))
+* **ci:** treat instant-merge race as success in auto-merge arm ([#41](https://github.com/chrischall/resy-mcp/issues/41)) ([50e1b3a](https://github.com/chrischall/resy-mcp/commit/50e1b3ae8fbaa8655bba0ecb3f5bdb27ca3c3f3a))
+
 ## [0.4.0](https://github.com/chrischall/resy-mcp/compare/v0.3.0...v0.4.0) (2026-05-28)
 
 

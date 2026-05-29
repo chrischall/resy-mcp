@@ -31,7 +31,7 @@ import { FetchproxyServer } from '@fetchproxy/server';
 // `x-release-please-version` marker on PACKAGE_VERSION below
 // (registered in release-please-config.json `extra-files`).
 const PACKAGE_NAME = 'resy-mcp';
-const PACKAGE_VERSION = '0.4.0'; // x-release-please-version
+const PACKAGE_VERSION = '0.5.0'; // x-release-please-version
 
 interface RefreshResponse {
   token?: unknown;
