@@ -3,9 +3,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 /**
  * Unit-test the fetchproxy bootstrap helper in isolation.
  *
- * We mock `@fetchproxy/server`'s `FetchproxyServer` constructor so the
- * test never opens a real WS. The full integration through ResyClient
- * (auth path selection, header wiring) is exercised in tests/client.test.ts.
+ * The bootstrap now constructs its bridge via
+ * `@chrischall/mcp-utils/fetchproxy`'s `createFetchproxyTransport`, so we mock
+ * that seam: the factory records the opts it was handed (the same trust-boundary
+ * fields the old `FetchproxyServer` constructor received — `domains`, etc.) and
+ * returns a transport whose `start`/`close` and `server.postJson` are our spies.
+ * The test never opens a real WS. The full integration through ResyClient (auth
+ * path selection, header wiring) is exercised in tests/client.test.ts.
+ *
+ * `start()` is the lifecycle's `listen()`; `mockListen` is kept under that name
+ * so the existing assertions read unchanged.
  */
 
 const mockListen = vi.fn();
@@ -13,14 +20,14 @@ const mockClose = vi.fn();
 const mockPostJson = vi.fn();
 const mockConstructor = vi.fn();
 
-vi.mock('@fetchproxy/server', () => ({
-  FetchproxyServer: class {
-    constructor(opts: unknown) {
-      mockConstructor(opts);
-    }
-    listen = mockListen;
-    close = mockClose;
-    postJson = mockPostJson;
+vi.mock('@chrischall/mcp-utils/fetchproxy', () => ({
+  createFetchproxyTransport: (opts: unknown) => {
+    mockConstructor(opts);
+    return {
+      start: mockListen,
+      close: mockClose,
+      server: { postJson: mockPostJson },
+    };
   },
 }));
 

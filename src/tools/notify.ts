@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { extractTime } from '@chrischall/mcp-utils';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResyClient } from '../client.js';
 import { textResult } from '../mcp.js';
@@ -21,13 +22,16 @@ interface NotifyResponse {
 
 /**
  * Resy uses HH:MM:SS on the wire; callers see HH:MM.
+ * Backed by the fleet-shared `extractTime`; the `|| undefined` preserves this
+ * list endpoint's "absent field → omitted from output" semantics (extractTime
+ * returns `''` for a missing value, which we map back to `undefined`).
  */
 function trimSeconds(t: string | undefined): string | undefined {
-  if (!t) return undefined;
-  const m = /^(\d{2}:\d{2})/.exec(t);
-  return m ? m[1] : t;
+  return extractTime(t) || undefined;
 }
 
+// No shared helper for the inverse direction (HH:MM → HH:MM:SS); Resy's /2/notify
+// write endpoint wants seconds, so pad them back on the way out.
 function padSeconds(t: string): string {
   return t.length === 5 ? `${t}:00` : t;
 }

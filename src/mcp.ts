@@ -1,16 +1,9 @@
 /**
  * Small helpers for shaping tool responses that the MCP SDK expects.
+ *
+ * `textResult` now comes from `@chrischall/mcp-utils` (the fleet-shared
+ * implementation is byte-identical to the one this file used to define).
+ * Re-exported here so the existing `import { textResult } from '../mcp.js'`
+ * sites across `src/tools/*` keep working unchanged.
  */
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-
-/**
- * Wrap any JSON-serializable value as a text-content MCP tool result.
- * Every `resy_*` tool returns exactly one text block; this removes the
- * repeated `{ content: [{ type: 'text' as const, text: JSON.stringify(...) }] }`
- * boilerplate at the bottom of each handler.
- */
-export function textResult(data: unknown): CallToolResult {
-  return {
-    content: [{ type: 'text' as const, text: JSON.stringify(data, null, 2) }],
-  };
-}
+export { textResult } from '@chrischall/mcp-utils';

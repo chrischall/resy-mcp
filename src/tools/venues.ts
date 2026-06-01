@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { extractTime } from '@chrischall/mcp-utils';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResyClient } from '../client.js';
 import { textResult } from '../mcp.js';
@@ -35,17 +36,18 @@ export interface FormattedSlot {
  * Parse "HH:MM" directly from an ISO-ish string like "2026-05-01T19:00:00".
  * Avoids `new Date()` so slot times aren't shifted by the caller's timezone
  * (Resy returns times in the restaurant's local zone with no offset).
+ *
+ * Re-exported alias over the fleet-shared `extractTime` (which prefers the
+ * post-`T` component and returns `''` on no match — identical behavior for
+ * Resy's ISO slot timestamps). Kept exported for API stability.
  */
-export function extractHHMM(start: string | undefined): string {
-  const m = /T(\d{2}):(\d{2})/.exec(start ?? '');
-  return m ? `${m[1]}:${m[2]}` : '';
-}
+export const extractHHMM = (start: string | undefined): string => extractTime(start);
 
 function formatSlot(raw: RawSlot, day: string, partySize: number): FormattedSlot {
   return {
     config_token: raw.config?.token ?? '',
     date: day,
-    time: extractHHMM(raw.date?.start),
+    time: extractTime(raw.date?.start),
     party_size: partySize,
     type: raw.config?.type ?? 'Dining Room',
   };
