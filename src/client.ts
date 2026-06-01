@@ -1,34 +1,31 @@
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { readEnvVar, loadDotenvSafely } from '@chrischall/mcp-utils';
 import { mintTokenViaFetchproxy } from './auth-fetchproxy.js';
 
-try {
-  const { config } = await import('dotenv');
-  const __dirname = dirname(fileURLToPath(import.meta.url));
-  // quiet: true suppresses dotenv v17's stdout telemetry banner, which
-  // Claude Desktop would otherwise try to parse as a JSON-RPC message
-  // and reject with "Invalid JSON-RPC message".
-  config({ path: join(__dirname, '..', '.env'), override: false, quiet: true });
-} catch {
-  // mcpb bundle won't have dotenv — rely on process.env set by mcp_config.env
-}
+// quiet: true (set inside loadDotenvSafely) suppresses dotenv v17's stdout
+// telemetry banner, which Claude Desktop would otherwise try to parse as a
+// JSON-RPC message and reject with "Invalid JSON-RPC message". A missing
+// dotenv module (mcpb bundle) is a silent no-op — creds come from
+// process.env / mcp_config.env in that case.
+const __dirname = dirname(fileURLToPath(import.meta.url));
+await loadDotenvSafely({ path: join(__dirname, '..', '.env'), override: false });
 
 /**
- * Read an env var, trim whitespace, and treat as unset if blank or if the value
- * looks like an unsubstituted shell placeholder (e.g. `${FOO}`) — defends
- * against MCP hosts that pass .mcp.json env blocks through unexpanded.
+ * Read an env var defensively (trim whitespace; treat blank, `undefined`/`null`
+ * sentinels, and unsubstituted `${FOO}` placeholders as unset). Thin alias over
+ * the fleet-shared `readEnvVar` so the call sites below stay terse.
  */
 function readVar(key: string): string | undefined {
-  const raw = process.env[key];
-  if (typeof raw !== 'string') return undefined;
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) return undefined;
-  if (trimmed === 'undefined' || trimmed === 'null') return undefined;
-  if (/^\$\{[^}]*\}$/.test(trimmed)) return undefined;
-  return trimmed;
+  return readEnvVar(key);
 }
 
 const BASE_URL = 'https://api.resy.com';
+// Resy's PUBLIC web-app API key — the same value baked into resy.com's browser
+// JavaScript and visible to anyone who opens DevTools on the site. It is not a
+// secret: every unauthenticated request to api.resy.com carries it. We only use
+// it as the default when RESY_API_KEY is unset, and document overriding it in
+// the README in case Resy ever rotates it. (Audited: not a committed secret.)
 const DEFAULT_API_KEY = 'VbWk7s3L4KiK5fzlO7JD3Q5EYolJI7n5';
 
 const SPOOF_HEADERS = {

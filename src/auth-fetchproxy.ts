@@ -24,8 +24,16 @@
  * typed `FetchproxyBridgeDownError` / `FetchproxyTimeoutError` on
  * bridge failures; the catch in `client.ts` surfaces them as a
  * guidance error.
+ *
+ * The bridge is constructed via `@chrischall/mcp-utils/fetchproxy`'s
+ * `createFetchproxyTransport` (which needs `@fetchproxy/server` >= 0.11):
+ * it wraps `new FetchproxyServer({...})` with the fleet-standard
+ * `start()`/`close()` lifecycle and exposes the raw `.server` so we can
+ * issue the single `postJson` bootstrap call. `start()` is `listen()`;
+ * `close()` is `close()`. No behavior change versus the prior direct
+ * construction — just the shared lifecycle wrapper.
  */
-import { FetchproxyServer } from '@fetchproxy/server';
+import { createFetchproxyTransport } from '@chrischall/mcp-utils/fetchproxy';
 
 // Kept in sync with package.json by release-please via the
 // `x-release-please-version` marker on PACKAGE_VERSION below
@@ -46,7 +54,7 @@ interface RefreshResponse {
  * a `token` field, or any other failure.
  */
 export async function mintTokenViaFetchproxy(): Promise<string> {
-  const fp = new FetchproxyServer({
+  const transport = createFetchproxyTransport({
     serverName: PACKAGE_NAME,
     version: PACKAGE_VERSION,
     domains: ['resy.com'],
@@ -56,8 +64,8 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
   });
 
   try {
-    await fp.listen();
-    const response = await fp.postJson<RefreshResponse>(
+    await transport.start();
+    const response = await transport.server.postJson<RefreshResponse>(
       '/3/auth/refresh',
       {},
       { subdomain: 'api' }
@@ -72,7 +80,7 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
     return response.token;
   } finally {
     try {
-      await fp.close();
+      await transport.close();
     } catch {
       /* swallow shutdown errors — the token (or the original failure) is what matters */
     }

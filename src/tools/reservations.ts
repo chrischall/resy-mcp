@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { extractTime } from '@chrischall/mcp-utils';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResyClient } from '../client.js';
 import { textResult } from '../mcp.js';
@@ -33,11 +34,11 @@ interface ReservationsResponse {
 
 /**
  * Trim trailing seconds from Resy's HH:MM:SS for caller-facing output.
+ * Backed by the fleet-shared `extractTime` — both pull a leading `HH:MM`
+ * and return `''` on empty input (identical for Resy's `HH:MM[:SS]` times).
  */
 function trimSeconds(t: string | undefined): string {
-  if (!t) return '';
-  const m = /^(\d{2}:\d{2})/.exec(t);
-  return m ? m[1] : t;
+  return extractTime(t);
 }
 
 function formatReservation(

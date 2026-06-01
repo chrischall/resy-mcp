@@ -41,6 +41,7 @@
     "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
+    "@chrischall/mcp-utils": "^0.1.0",
     "@fetchproxy/server": "^0.11.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "dotenv": "^17.4.2",
