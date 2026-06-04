@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.1](https://github.com/chrischall/resy-mcp/compare/v0.5.0...v0.5.1) (2026-06-04)
+
+
+### Bug Fixes
+
+* adopt @fetchproxy/server 0.13.0 (bridge host failover + re-pairing) ([#52](https://github.com/chrischall/resy-mcp/issues/52)) ([d285b39](https://github.com/chrischall/resy-mcp/commit/d285b397dc8bf785aed0ba4a4936165f76495048))
+* adopt @fetchproxy/server 1.0.0 + @chrischall/mcp-utils 0.5.0 ([#54](https://github.com/chrischall/resy-mcp/issues/54)) ([4987de7](https://github.com/chrischall/resy-mcp/commit/4987de7b3b8c575a4b2eb803d5b60a7dd24c7973))
+
 ## [0.5.0](https://github.com/chrischall/resy-mcp/compare/v0.4.0...v0.5.0) (2026-05-29)
 
 
