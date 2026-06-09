@@ -134,7 +134,7 @@ export class ResyClient {
    *    flow (`POST /3/auth/password`). Unchanged from before fetchproxy.
    * 3. fetchproxy bootstrap — `POST /3/auth/refresh` through the user's
    *    signed-in resy.com browser tab. Opt-out via
-   *    `RESY_DISABLE_FETCHPROXY=1`.
+   *    `RESY_DISABLE_FETCHPROXY=1` (or `true`/`yes`/`on`).
    *
    * If none of the three is configured/working, throws a guidance error
    * naming all three remediation paths.
