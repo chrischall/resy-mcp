@@ -124,6 +124,69 @@ describe('ResyClient', () => {
     expect(init.headers['x-resy-universal-auth']).toBe('fp-tk');
   });
 
+  it('redacts a token echoed in a login-failure body', async () => {
+    // /3/auth/password failure bodies are untrusted upstream text — an echoing
+    // upstream/proxy could reflect credentials or tokens. They must be
+    // redacted before reaching the thrown (tool-result-visible) message.
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjaHJpcyJ9.c2lnbmF0dXJlLXNlZ21lbnQ';
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 419,
+      statusText: 'Auth Expired',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: async () => JSON.stringify({ error: `bad credentials, token ${jwt}` }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const client = new ResyClient();
+    const err = await client.request('GET', '/x').then(
+      () => {
+        throw new Error('expected rejection');
+      },
+      (e: unknown) => e as Error
+    );
+    expect(err.message).toContain('Resy login failed: 419');
+    expect(err.message).not.toContain(jwt);
+    expect(err.message).toContain('[REDACTED]');
+  });
+
+  it('redacts a token echoed in a login response missing a token field', async () => {
+    const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJjaHJpcyJ9.c2lnbmF0dXJlLXNlZ21lbnQ';
+    const mockFetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: async () => JSON.stringify({ weird: `Bearer ${jwt}` }),
+    });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const client = new ResyClient();
+    const err = await client.request('GET', '/x').then(
+      () => {
+        throw new Error('expected rejection');
+      },
+      (e: unknown) => e as Error
+    );
+    expect(err.message).toContain('Resy login response did not contain a token');
+    expect(err.message).not.toContain(jwt);
+    expect(err.message).toContain('[REDACTED]');
+  });
+
+  it.each(['true', 'yes', 'on', 'TRUE'])(
+    'RESY_DISABLE_FETCHPROXY=%s disables the fetchproxy fallback',
+    async (value) => {
+      process.env.RESY_EMAIL = '';
+      process.env.RESY_PASSWORD = '';
+      process.env.RESY_DISABLE_FETCHPROXY = value;
+
+      const client = new ResyClient();
+      await expect(client.request('GET', '/x')).rejects.toThrow(
+        /set RESY_EMAIL.*RESY_PASSWORD.*RESY_AUTH_TOKEN.*fetchproxy/
+      );
+      expect(mintTokenViaFetchproxy).not.toHaveBeenCalled();
+    }
+  );
+
   it('throws guidance error when no email/password and fetchproxy is disabled', async () => {
     process.env.RESY_EMAIL = '';
     process.env.RESY_PASSWORD = '';
