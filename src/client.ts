@@ -1,6 +1,6 @@
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { readEnvVar, loadDotenvSafely } from '@chrischall/mcp-utils';
+import { readEnvVar, loadDotenvSafely, parseBoolEnv, truncateErrorMessage } from '@chrischall/mcp-utils';
 import { mintTokenViaFetchproxy } from './auth-fetchproxy.js';
 
 // quiet: true (set inside loadDotenvSafely) suppresses dotenv v17's stdout
@@ -153,8 +153,9 @@ export class ResyClient {
       return;
     }
 
-    // Path 3: fetchproxy fallback
-    if (readVar('RESY_DISABLE_FETCHPROXY') !== '1') {
+    // Path 3: fetchproxy fallback. parseBoolEnv accepts 1/true/yes/on
+    // (case-insensitively) like every sibling repo, not just the literal '1'.
+    if (!parseBoolEnv('RESY_DISABLE_FETCHPROXY')) {
       try {
         this.token = await mintTokenViaFetchproxy();
         return;
@@ -193,9 +194,11 @@ export class ResyClient {
     });
 
     const text = await response.text();
+    // Login-failure bodies are untrusted upstream text and may echo
+    // credentials/tokens — redact + truncate before they can reach a tool result.
     if (!response.ok) {
       throw new Error(
-        `Resy login failed: ${response.status} ${response.statusText}: ${text.slice(0, 200)}`
+        `Resy login failed: ${response.status} ${response.statusText}: ${truncateErrorMessage(text)}`
       );
     }
 
@@ -207,7 +210,7 @@ export class ResyClient {
       null;
     if (!token) {
       throw new Error(
-        `Resy login response did not contain a token: ${text.slice(0, 200)}`
+        `Resy login response did not contain a token: ${truncateErrorMessage(text)}`
       );
     }
     return token;
