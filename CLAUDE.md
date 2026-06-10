@@ -151,17 +151,11 @@ Version appears in EIGHT places — all must match:
 
 ### Important
 
-Do NOT manually bump versions or create tags unless the user explicitly asks. Versioning is handled by the **Tag & Bump** GitHub Action (`.github/workflows/tag-and-bump.yml`).
+Do NOT manually bump versions or create tags unless the user explicitly asks. Versioning is handled by **release-please** (`.github/workflows/release-please.yml`). `release-please-config.json` registers all of the files above as `extra-files`, so a single release PR bumps them in lockstep.
 
 ### Release workflow
 
-Main is always one version ahead of the latest tag. To release, run the **Tag & Bump** workflow which:
-
-1. Runs CI (build + test) via `ci.yml`
-2. Tags the current commit with the current `package.json` version
-3. Bumps patch via `npm version patch --no-git-tag-version` + an inline node script that walks every JSON version field, plus a `sed` on `src/index.ts`
-4. Rebuilds, commits, and pushes main + the new tag
-5. The tag push triggers `release.yml` (npm publish + GitHub Release + MCP Registry + ClawHub)
+Commits land on `main` via PR. release-please (`.github/workflows/release-please.yml`) opens or updates a `chore(main): release X.Y.Z` PR whenever Conventional-Commit messages (`feat:`, `fix:`, etc.) accumulate. Merging the release PR (arm `ready-to-merge`) creates the tag and a GitHub Release; the `publish` job then packs the `.mcpb` bundle and `.skill` archive, publishes to npm with provenance, and pushes to the MCP Registry.
 
 <!-- pr-workflow:v1 -->
 ## Pull requests & release notes
