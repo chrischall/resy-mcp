@@ -1,5 +1,9 @@
 # resy-mcp
 
+[![CI](https://github.com/chrischall/resy-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/chrischall/resy-mcp/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/resy-mcp)](https://www.npmjs.com/package/resy-mcp)
+[![license](https://img.shields.io/npm/l/resy-mcp)](LICENSE)
+
 Resy reservation management as an MCP server for Claude — search restaurants, book tables, manage reservations, favorites, and Priority Notify via natural language.
 
 > ⚠️ Resy does not publish an official API. This server uses the same private endpoints the Resy web app calls, with the public web-app `api_key` and one of three user-level auth paths (token override, email + password, or a fetchproxy browser bridge). Use at your own discretion.
