@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.2](https://github.com/chrischall/resy-mcp/compare/v0.5.1...v0.5.2) (2026-06-13)
+
+
+### Bug Fixes
+
+* bot PRs bypass the CI gate unconditionally (upstream curtaincall[#86](https://github.com/chrischall/resy-mcp/issues/86) review) ([#64](https://github.com/chrischall/resy-mcp/issues/64)) ([55fae16](https://github.com/chrischall/resy-mcp/commit/55fae16c29feaff6d9b11e2df4830e22241733a0))
+
+
+### Documentation
+
+* add MIT LICENSE file and README badges ([#62](https://github.com/chrischall/resy-mcp/issues/62)) ([f0de864](https://github.com/chrischall/resy-mcp/commit/f0de8642e297f21d101273b4f0462932493802a7))
+* correct Versioning section to describe release-please ([#60](https://github.com/chrischall/resy-mcp/issues/60)) ([c4b2c87](https://github.com/chrischall/resy-mcp/commit/c4b2c87ad04873727f2aae7a3f3511ffde59f363))
+
 ## [0.5.1](https://github.com/chrischall/resy-mcp/compare/v0.5.0...v0.5.1) (2026-06-04)
 
 
