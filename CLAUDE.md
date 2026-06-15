@@ -49,8 +49,9 @@ src/
                         #   through @fetchproxy/server's FetchproxyServer.
                         #   Pattern B — bootstraps a token then closes the
                         #   bridge. Direct Node fetch handles the rest.
-  mcp.ts                # textResult() helper — wraps any JSON value as the
-                        #   single-text-block CallToolResult every tool returns
+  mcp.ts                # re-exports textResult() from @chrischall/mcp-utils —
+                        #   wraps any JSON value as the single-text-block
+                        #   CallToolResult every tool returns
   tools/
     user.ts             # resy_get_profile, resy_list_payment_methods
     venues.ts           # resy_search_venues, resy_find_slots, resy_get_venue
@@ -93,7 +94,7 @@ Write a failing test before implementation. Keep tool tests in `tests/tools/<nam
 ## Conventions
 
 - All tools are `resy_*`-prefixed.
-- Tool return shape: `textResult(data)` from `src/mcp.ts` → `{ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }`. Don't hand-roll the wrapper.
+- Tool return shape: `textResult(data)` (re-exported by `src/mcp.ts` from `@chrischall/mcp-utils`) → `{ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }`. Don't hand-roll the wrapper.
 - Read-only tools set `annotations: { readOnlyHint: true }`.
 - Form-encoded bodies use `URLSearchParams`; `ResyClient.request` detects the instance and sets `Content-Type: application/x-www-form-urlencoded` automatically. Otherwise it JSON-encodes.
 - Times are normalized to `HH:MM` at the MCP boundary even though Resy uses `HH:MM:SS` on the wire.
@@ -124,7 +125,7 @@ docs/submissions/   # Manual-submission copy for mcpservers.org + clau.de
 
 ## Registry surface
 
-Each `v*` tag push fans out via `.github/workflows/release.yml` to: npm (with provenance), GitHub Releases (`.skill` + `.mcpb` artifacts), `modelcontextprotocol/registry` (OIDC), and ClawHub (only if `CLAWHUB_TOKEN` is set). PulseMCP auto-ingests from the MCP Registry weekly. Two registries need a one-time manual browser submission: `mcpservers.org/submit` and `clau.de/plugin-directory-submission` — see `docs/submissions/README.md`.
+When release-please cuts a release, the `publish` job in `.github/workflows/release-please.yml` runs the `chrischall/workflows/.github/actions/mcp-publish` composite action, fanning out to: npm (with provenance), GitHub Releases (`.skill` + `.mcpb` artifacts), `modelcontextprotocol/registry` (OIDC), and ClawHub (only if `CLAWHUB_TOKEN` is set). PulseMCP auto-ingests from the MCP Registry weekly. Two registries need a one-time manual browser submission: `mcpservers.org/submit` and `clau.de/plugin-directory-submission` — see `docs/submissions/README.md`.
 
 ## Publishing constraints
 
@@ -155,7 +156,7 @@ Do NOT manually bump versions or create tags unless the user explicitly asks. Ve
 
 ### Release workflow
 
-Commits land on `main` via PR. release-please (`.github/workflows/release-please.yml`) opens or updates a `chore(main): release X.Y.Z` PR whenever Conventional-Commit messages (`feat:`, `fix:`, etc.) accumulate. Merging the release PR (arm `ready-to-merge`) creates the tag and a GitHub Release; the `publish` job then packs the `.mcpb` bundle and `.skill` archive, publishes to npm with provenance, and pushes to the MCP Registry.
+Commits land on `main` via PR. release-please (`.github/workflows/release-please.yml`) opens or updates a `chore(main): release X.Y.Z` PR whenever Conventional-Commit messages (`feat:`, `fix:`, etc.) accumulate. Merging the release PR (arm `release-ready`) creates the tag and a GitHub Release; the `publish` job then packs the `.mcpb` bundle and `.skill` archive, publishes to npm with provenance, and pushes to the MCP Registry.
 
 <!-- pr-workflow:v2 -->
 ## Pull requests & release notes
@@ -185,10 +186,23 @@ The **PR title MUST be a Conventional Commit**, written user-facing (`fix(scope)
 
 **Don't run `gh pr merge` yourself.** The automation does it:
 
-1. `pr-auto-review.yml` runs a Claude review on every PR **except** the release-please release PR (which it deliberately skips). On a `pass` verdict it adds the `ready-to-merge` label.
+1. `pr-auto-review.yml` runs a Claude review on every PR **except** the release-please release PR (which it deliberately skips). On a `pass` **or** `warn` verdict it adds the `ready-to-merge` label; a `warn` (nits) or `fail` also opens/updates an `auto-review-followup` issue. Only `fail` blocks the merge.
 2. `auto-merge.yml`, on the `ready-to-merge` label (or on a dependabot PR), arms `gh pr merge --auto --squash`. The moment CI is green the PR squash-merges itself.
 
-For ordinary feature/fix PRs, opening with `gh pr create --label <label>` (or `--label ignore-for-release` for chores not worth a release-notes line) is the whole job. If Claude's verdict was `warn`/`fail` but you've decided to ship anyway, add the label yourself: `gh pr edit <num> --add-label ready-to-merge`.
+For ordinary feature/fix PRs, opening with `gh pr create --label <label>` (or `--label ignore-for-release` for chores not worth a release-notes line) is the whole job. If Claude's verdict was `fail` but you've decided to ship anyway, add the label yourself: `gh pr edit <num> --add-label ready-to-merge`.
+
+### Auto-review follow-up issues
+
+When a PR's auto-review verdict is `warn` or `fail`, the `chrischall/workflows` pipeline opens or updates a single `auto-review-followup` issue ("Auto-review follow-ups for PR #N") whose checklist captures every finding, and links it from the PR's `<!-- auto-review-verdict -->` comment (`📋 Tracking follow-ups: #N`). `warn` (nits only) still auto-merges — the issue carries the nits forward, so most nits are fixed in a *later* PR; `fail` blocks until the important findings are addressed on the PR itself.
+
+When asked to address the auto-review comments / review findings on a PR:
+
+1. Read the verdict comment, open the linked `auto-review-followup` issue, and treat its checklist as the work list (alongside any inline review comments).
+2. Resolve each item, checking off only what you've **verified** is genuinely fixed.
+3. If every item is resolved on the current PR, add `Closes #<issue>` to that PR's body so the merge closes it; if some are deferred, check off only the resolved ones and leave the issue open.
+4. For nits whose `warn` PR already auto-merged, address them in a follow-up PR that references `Closes #<issue>`.
+
+(Mirrors the fleet-wide convention in `~/.claude/CLAUDE.md`.)
 
 ### PR timing — only open when the feature is done
 
@@ -199,7 +213,7 @@ Because PRs auto-merge as soon as auto-review passes, **do not open a PR until t
 - If follow-ups land after a PR is already open, they need to land on the same branch *before* auto-review flips to `pass`. Once the PR squash-merges, late commits orphan onto a stale branch and become their own follow-up PR.
 - If you genuinely need a checkpoint review without shipping, open the PR as a GitHub draft (`gh pr create --draft …`) — auto-review skips drafts. Mark it ready-for-review only when the feature is truly done.
 
-**Release PRs are the one manual touch.** release-please opens its own release PR and leaves it open as your staging artifact — `pr-auto-review.yml` skips it on purpose, so it sits there accumulating changes until you decide to ship. When you're ready, add `ready-to-merge` to it the same way: `gh pr edit <num> --add-label ready-to-merge`. The `auto-merge.yml` arm then takes over and the publish job fires the moment the release PR lands.
+**Release PRs are the one manual touch.** release-please opens its own release PR and leaves it open as your staging artifact — `pr-auto-review.yml` skips it on purpose, so it sits there accumulating changes until you decide to ship. When you're ready, add the release gate label: `gh pr edit <num> --add-label release-ready`. The `auto-merge.yml` arm then takes over and the publish job fires the moment the release PR lands.
 
 The repo allows squash-merge only — `--merge` and `--rebase` are blocked at the branch-protection ruleset level.
 
