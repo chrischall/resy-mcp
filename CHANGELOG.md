@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.3](https://github.com/chrischall/resy-mcp/compare/v0.5.2...v0.5.3) (2026-07-05)
+
+
+### Bug Fixes
+
+* **deps:** bump esbuild to 0.28.1 (2 Dependabot alerts) ([#73](https://github.com/chrischall/resy-mcp/issues/73)) ([079e8b9](https://github.com/chrischall/resy-mcp/commit/079e8b957038d575d3dfefc34cdaaae6220ceeb8))
+
+
+### Documentation
+
+* audit CLAUDE.md and add auto-review follow-up convention ([#72](https://github.com/chrischall/resy-mcp/issues/72)) ([cb63fdc](https://github.com/chrischall/resy-mcp/commit/cb63fdc3244e197a7791a8ba528d7ffccea369d3))
+* require Conventional Commit PR titles for release-please ([#68](https://github.com/chrischall/resy-mcp/issues/68)) ([2b328ce](https://github.com/chrischall/resy-mcp/commit/2b328cecb3b5bcfaa82b61733b715cc1926abd9e))
+
 ## [0.5.2](https://github.com/chrischall/resy-mcp/compare/v0.5.1...v0.5.2) (2026-06-13)
 
 
