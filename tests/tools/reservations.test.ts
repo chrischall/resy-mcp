@@ -476,6 +476,34 @@ describe('reservation tools (list/cancel)', () => {
       expect(parsed.note).toMatch(/confirm: true/);
     });
 
+    it('preview takes the first available slot and reports requested_time:null when desired_time is omitted', async () => {
+      queueBookMocks({
+        slots: [
+          { token: 'cfg-630', time: '18:30' },
+          { token: 'cfg-730', time: '19:30' },
+        ],
+        paymentMethods: [{ id: 55, is_default: true, last_four: '4242' }],
+      });
+
+      const result = await harness.callTool('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2,
+      });
+
+      // Read-only preview: the mutating POST /3/book must NOT fire.
+      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(false);
+      // First-slot fallback resolves against the FIRST slot's config token.
+      expect(mockRequest.mock.calls[1][1]).toContain('config_id=cfg-630');
+
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed.preview).toBe(true);
+      expect(parsed.booked).toBe(false);
+      expect(parsed.time).toBe('18:30'); // first available slot
+      expect(parsed.requested_time).toBe(null); // desired_time omitted
+      expect(parsed.is_closest_match).toBe(false);
+      expect(parsed.available_times).toEqual(['18:30', '19:30']);
+      expect(parsed.note).toMatch(/confirm: true/);
+    });
+
     it('preview flags a closest-time substitution when allow_closest_time:true but not confirmed', async () => {
       queueBookMocks({
         slots: [
