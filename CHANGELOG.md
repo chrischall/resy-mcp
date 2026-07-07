@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.5.4](https://github.com/chrischall/resy-mcp/compare/v0.5.3...v0.5.4) (2026-07-07)
+
+
+### Bug Fixes
+
+* bump @chrischall/mcp-utils to ^0.10.5 ([#81](https://github.com/chrischall/resy-mcp/issues/81)) ([60e0831](https://github.com/chrischall/resy-mcp/commit/60e0831a1c28fb4739371674d3366f92d07f510d))
+* bump @chrischall/mcp-utils to 0.12.0 ([#88](https://github.com/chrischall/resy-mcp/issues/88)) ([89eab7a](https://github.com/chrischall/resy-mcp/commit/89eab7a3d98eccc0cdecbaa600a4a990b2e7c19f))
+* confirm-gate resy_book/resy_cancel and stop silent wrong-time booking ([#85](https://github.com/chrischall/resy-mcp/issues/85)) ([0cc2ccd](https://github.com/chrischall/resy-mcp/commit/0cc2ccddb800e0e7e2475c18690810bb349a844b))
+
 ## [0.5.3](https://github.com/chrischall/resy-mcp/compare/v0.5.2...v0.5.3) (2026-07-05)
 
 
