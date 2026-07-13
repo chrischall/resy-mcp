@@ -114,12 +114,13 @@ Write a failing test before implementation. Keep tool tests in `tests/tools/<nam
 
 ```
 .claude-plugin/
-  plugin.json       # Claude Code plugin manifest (points at ./.mcp.json + SKILL.md)
+  plugin.json       # Claude Code plugin manifest (points at ./.mcp.json + ./skills/)
   marketplace.json  # Marketplace catalog entry
 .mcp.json           # MCP client config for plugin installs (uses ${CLAUDE_PLUGIN_ROOT})
 manifest.json       # MCPB / Claude Desktop user-config + tool catalog
 server.json         # modelcontextprotocol/registry entry (OIDC publish)
-SKILL.md            # Claude Code skill — teaches Claude when/how to use the tools
+skills/resy/SKILL.md  # Claude Code skill — teaches Claude when/how to use the tools
+skills/resy-fpx/SKILL.md  # Claude Code skill — direct-API/fpx access patterns
 docs/submissions/   # Manual-submission copy for mcpservers.org + clau.de
 ```
 
