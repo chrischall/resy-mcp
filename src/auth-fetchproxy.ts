@@ -39,7 +39,7 @@ import { createFetchproxyTransport } from '@chrischall/mcp-utils/fetchproxy';
 // `x-release-please-version` marker on PACKAGE_VERSION below
 // (registered in release-please-config.json `extra-files`).
 const PACKAGE_NAME = 'resy-mcp';
-const PACKAGE_VERSION = '0.5.4'; // x-release-please-version
+const PACKAGE_VERSION = '0.6.0'; // x-release-please-version
 
 interface RefreshResponse {
   token?: unknown;

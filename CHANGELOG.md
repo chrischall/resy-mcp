@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.0](https://github.com/chrischall/resy-mcp/compare/v0.5.4...v0.6.0) (2026-07-13)
+
+
+### Features
+
+* **skill:** add resy fpx access skill ([#92](https://github.com/chrischall/resy-mcp/issues/92)) ([1b33a71](https://github.com/chrischall/resy-mcp/commit/1b33a718842a3b92093cc027ed846c31ae4ae616))
+
+
+### Bug Fixes
+
+* **skill:** url-encode book_token/resy_token in resy-api.md curl examples ([#96](https://github.com/chrischall/resy-mcp/issues/96)) ([40cb410](https://github.com/chrischall/resy-mcp/commit/40cb410d89ab687e0ac207e81013807c56f7ed5a))
+
+
+### Refactor
+
+* **skill:** move root SKILL.md into skills/, point plugin.json at ./skills/ ([#95](https://github.com/chrischall/resy-mcp/issues/95)) ([ab4ed84](https://github.com/chrischall/resy-mcp/commit/ab4ed840b4c4001526543c3455654c9dda3a9bc4))
+
 ## [0.5.4](https://github.com/chrischall/resy-mcp/compare/v0.5.3...v0.5.4) (2026-07-07)
 
 
