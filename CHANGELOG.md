@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.1](https://github.com/chrischall/resy-mcp/compare/v0.6.0...v0.6.1) (2026-07-19)
+
+
+### Bug Fixes
+
+* **release:** pin skill-path so the publish job can resolve SKILL.md ([#97](https://github.com/chrischall/resy-mcp/issues/97)) ([47befa5](https://github.com/chrischall/resy-mcp/commit/47befa56843408fca764998e974858bcc26fe9b1))
+
+
+### Documentation
+
+* replace duplicated fleet policy with a pointer ([#99](https://github.com/chrischall/resy-mcp/issues/99)) ([829a9ea](https://github.com/chrischall/resy-mcp/commit/829a9ea984673718b5d54306ee21242d13eecb30))
+
 ## [0.6.0](https://github.com/chrischall/resy-mcp/compare/v0.5.4...v0.6.0) (2026-07-13)
 
 
