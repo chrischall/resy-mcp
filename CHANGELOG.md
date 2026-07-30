@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/chrischall/resy-mcp/compare/v0.6.1...v0.6.2) (2026-07-30)
+
+
+### Bug Fixes
+
+* **deps:** bump @fetchproxy/* to 1.7.0 and @chrischall/mcp-utils to 0.14.0 ([#110](https://github.com/chrischall/resy-mcp/issues/110)) ([ff3369c](https://github.com/chrischall/resy-mcp/commit/ff3369c909681b6c7998f20af58f8cae3d7ecb9f))
+
 ## [0.6.1](https://github.com/chrischall/resy-mcp/compare/v0.6.0...v0.6.1) (2026-07-19)
 
 
