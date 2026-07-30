@@ -2,7 +2,7 @@
   "name": "resy-mcp",
   "version": "0.6.1",
   "mcpName": "io.github.chrischall/resy-mcp",
-  "description": "Resy MCP server for Claude — developed and maintained by AI (Claude Code)",
+  "description": "Resy MCP server for Claude \u2014 developed and maintained by AI (Claude Code)",
   "author": "Claude Code (AI) <https://www.anthropic.com/claude>",
   "repository": {
     "type": "git",
@@ -41,8 +41,8 @@
     "smoke": "tsx scripts/smoke.ts"
   },
   "dependencies": {
-    "@chrischall/mcp-utils": "^0.13.0",
-    "@fetchproxy/server": "^1.0.0",
+    "@chrischall/mcp-utils": "^0.14.0",
+    "@fetchproxy/server": "^1.7.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "dotenv": "^17.4.2",
     "zod": "^4.4.3"
