@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/chrischall/resy-mcp/compare/v0.6.2...v0.6.3) (2026-08-06)
+
+
+### Bug Fixes
+
+* **deps:** move to @fetchproxy/server 2.0.0 for the v3 handshake ([#118](https://github.com/chrischall/resy-mcp/issues/118)) ([125f6b5](https://github.com/chrischall/resy-mcp/commit/125f6b5db4c856c09fa299e6c0af79e55f7e9454))
+
 ## [0.6.2](https://github.com/chrischall/resy-mcp/compare/v0.6.1...v0.6.2) (2026-07-30)
 
 
