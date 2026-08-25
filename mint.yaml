@@ -1,0 +1,54 @@
+version: 1
+name: Resy
+slug: resy
+summary: >-
+  Resy reservation management for Claude — search venues, book tables,
+  manage reservations and priority notify
+#
+# Hosting note (a comment, not user-facing summary text): this is a
+# BROWSER-BRIDGE MCP — it reaches its site through the user's signed-in
+# tab via the fetchproxy bridge. A bridged registration also needs runtime
+# `fly-shared`, `bridge: true` and a `bridgePortEnv`, which are registration
+# fields this manifest has no schema for (set them over the control API).
+# `state.dataDir` below is required for `bridge`.
+env:
+  - name: RESY_EMAIL
+    required: false
+    help: >-
+      Your Resy account email. Optional — leave unset to use the fetchproxy
+      browser bridge instead.
+  - name: RESY_PASSWORD
+    secret: true
+    required: false
+    help: >-
+      Your Resy account password. Optional — leave unset to use the fetchproxy
+      browser bridge instead.
+  - name: RESY_AUTH_TOKEN
+    secret: true
+    required: false
+    help: >-
+      Pre-obtained x-resy-auth-token. Overrides email/password and the
+      fetchproxy bridge. Power users / CI only.
+  - name: RESY_DISABLE_FETCHPROXY
+    required: false
+    help: >-
+      Set to '1' to disable the fetchproxy fallback (forces RESY_EMAIL+PASSWORD
+      or RESY_AUTH_TOKEN).
+  - name: RESY_API_KEY
+    secret: true
+    required: false
+    help: >-
+      Override the public web-app API key (rarely needed)
+state:
+  dataDir: true
+  reason: >-
+    The fetchproxy identity lives at $HOME/.fetchproxy/identity/<name>.json
+    and the pair code derives from it. Without a persistent $HOME every cold
+    start mints a fresh identity and re-prompts pairing in the browser; the
+    API refuses bridge without it.
+egress:
+  allow:
+    # Only hosts the SERVER process actually fetches. Hosts that appear
+    # solely in a URL this server BUILDS and returns are excluded.
+    - api.resy.com
+    - resy.com
