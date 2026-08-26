@@ -526,3 +526,40 @@ describe('ResyClient', () => {
     });
   });
 });
+
+describe('ResyClient — a failed re-mint does not re-mint again', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+    mintTokenViaFetchproxy.mockReset();
+    process.env.RESY_EMAIL = 'test@example.com';
+    process.env.RESY_PASSWORD = 'pw';
+    delete process.env.RESY_AUTH_TOKEN;
+    delete process.env.RESY_DISABLE_FETCHPROXY;
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('surfaces the re-mint failure instead of repeating it', async () => {
+    // Minting IS logging in here, so the library's re-mint-after-a-failed-
+    // refresh recovery would just repeat the call that just failed against
+    // Resy's auth endpoint. `isRefreshRevoked: () => false` turns it off.
+    //
+    // The bootstrap must SUCCEED first — a failed FIRST mint never reaches the
+    // recovery path at all, so mocking that would exercise nothing. Sequence:
+    // login ok, API 401 (drives withAuth's replay), re-login fails.
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({ token: 'tok-1' }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 401 }))
+      .mockResolvedValue(new Response('nope', { status: 401, statusText: 'Unauthorized' }));
+
+    const client = new ResyClient();
+    await expect(client.request('GET', '/2/config')).rejects.toThrow();
+
+    const loginCalls = fetchMock.mock.calls.filter((c: unknown[]) =>
+      String(c[0]).includes('/3/auth/password'),
+    );
+    // Two: the successful bootstrap and the one failed re-mint. A third would
+    // be the recovery this deliberately disables.
+    expect(loginCalls).toHaveLength(2);
+  });
+});

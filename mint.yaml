@@ -39,13 +39,27 @@ env:
     required: false
     help: >-
       Override the public web-app API key (rarely needed)
+  - name: RESY_TOKEN_CACHE
+    required: false
+    help: >-
+      Set to false to disable the on-disk token cache and mint a new token on
+      every process start. Defaults to enabled.
+  - name: RESY_TOKEN_FILE
+    required: false
+    help: >-
+      Absolute path for the token cache file. Defaults to
+      $MCP_DATA_DIR/.resy-mcp/token.json.
 state:
   dataDir: true
   reason: >-
-    The fetchproxy identity lives at $HOME/.fetchproxy/identity/<name>.json
-    and the pair code derives from it. Without a persistent $HOME every cold
-    start mints a fresh identity and re-prompts pairing in the browser; the
-    API refuses bridge without it.
+    Two things live here. The fetchproxy identity is at
+    $HOME/.fetchproxy/identity/<name>.json and the pair code derives from it —
+    without a persistent $HOME every cold start mints a fresh identity and
+    re-prompts pairing in the browser, and the API refuses bridge without it.
+    The minted auth token is cached at $MCP_DATA_DIR/.resy-mcp/token.json
+    (0600), which matters most on that same path: with the cache a cold start
+    proceeds with no browser present at all. A static RESY_AUTH_TOKEN caches
+    nothing.
 egress:
   allow:
     # Only hosts the SERVER process actually fetches. Hosts that appear

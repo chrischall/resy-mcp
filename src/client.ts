@@ -1,4 +1,5 @@
 import { dirname, join } from 'path';
+import { createTokenCache, reportCacheWriteFailure } from './token-cache.js';
 import { fileURLToPath } from 'url';
 import { readEnvVar, loadDotenvSafely, parseBoolEnv, truncateErrorMessage } from '@chrischall/mcp-utils';
 import { TokenManager } from '@chrischall/mcp-utils/session';
@@ -41,7 +42,12 @@ const DEFAULT_API_KEY = 'VbWk7s3L4KiK5fzlO7JD3Q5EYolJI7n5';
 //     hand it a constant sentinel as the "refresh token". It is never sent on
 //     the wire — it only keeps the single-flight refresh path armed.
 const REFRESH_SENTINEL = 'resy-reauth';
-const NEVER_EXPIRES = Number.POSITIVE_INFINITY;
+// Far-future rather than Infinity, and that matters beyond taste: JSON has no
+// infinity literal, so a persisted Infinity is written as `null` and read back
+// as a non-number. The token cache would then be written on every mint and
+// rejected on every load — doing nothing, silently. Any finite value past the
+// life of a session behaves identically to Infinity for `needsRefresh`.
+const NEVER_EXPIRES = Date.UTC(9999, 0, 1);
 
 const SPOOF_HEADERS = {
   Origin: 'https://resy.com',
@@ -65,13 +71,27 @@ export class ResyClient {
     // Race-safe token lifecycle from the shared session kit. The refresh
     // callback runs resy's three-path mint; single-flight + the usedToken
     // double-refresh guard live inside TokenManager.withAuth (see request()).
+    // Minting and re-minting are the same operation, and the FUNCTION form of
+    // `initial` is what makes the cache readable — the eager object form skips
+    // persistence entirely, so the expired placeholder that used to sit here
+    // would have meant a cache written and never read.
+    const mint = async (): Promise<{
+      accessToken: string;
+      refreshToken: string;
+      expiresAt: number;
+    }> => ({
+      accessToken: await this.mintToken(),
+      refreshToken: REFRESH_SENTINEL,
+      expiresAt: NEVER_EXPIRES,
+    });
     this.tokens = new TokenManager({
-      initial: { accessToken: '', refreshToken: REFRESH_SENTINEL, expiresAt: 0 },
-      refresh: async () => ({
-        accessToken: await this.mintToken(),
-        refreshToken: REFRESH_SENTINEL,
-        expiresAt: NEVER_EXPIRES,
-      }),
+      initial: mint,
+      refresh: mint,
+      persistence: createTokenCache() ?? undefined,
+      onPersistError: reportCacheWriteFailure,
+      // A failed mint IS a failed login here, so the library's
+      // re-mint-on-revoked recovery would just repeat the call that failed.
+      isRefreshRevoked: () => false,
     });
   }
 
