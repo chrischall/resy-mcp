@@ -1,5 +1,5 @@
 ---
-name: resy-mcp
+name: resy
 description: Manage Resy restaurant reservations via MCP — search venues, book tables, list and cancel reservations, manage favorites, and subscribe to Priority Notify. Triggers on phrases like "book a table at", "find me a reservation", "what reservations do I have", "cancel my Resy", "add to my Resy hit list", or any request involving restaurant reservations on Resy. Requires resy-mcp installed and the resy server registered (see Setup below).
 ---
 
