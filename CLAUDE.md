@@ -49,6 +49,12 @@ src/
                         #   through @fetchproxy/server's FetchproxyServer.
                         #   Pattern B — bootstraps a token then closes the
                         #   bridge. Direct Node fetch handles the rest.
+  token-cache.ts        # createTokenCache(): the on-disk token cache
+                        #   ($MCP_DATA_DIR/.resy-mcp/token.json, 0600) over
+                        #   createFileStatePersistence + resolveStateFile.
+                        #   Returns null for RESY_AUTH_TOKEN (nothing to skip)
+                        #   and when the cache is off; bound to a salted digest
+                        #   of the credentials so rotating one discards it
   mcp.ts                # re-exports textResult() from @chrischall/mcp-utils —
                         #   wraps any JSON value as the single-text-block
                         #   CallToolResult every tool returns
@@ -78,6 +84,9 @@ RESY_AUTH_TOKEN=<tk>          # Path 1 (override). x-resy-auth-token, verbatim.
 RESY_EMAIL=<addr>             # Path 2. Resy account email.
 RESY_PASSWORD=<pass>          # Path 2. Resy account password.
 RESY_DISABLE_FETCHPROXY=1     # Opt out of the fetchproxy fallback (Path 3).
+RESY_TOKEN_CACHE=false        # Opt out of the on-disk token cache (default on).
+RESY_TOKEN_FILE=<path>        # Override the cache path. Defaults to
+                              #   $MCP_DATA_DIR/.resy-mcp/token.json.
 RESY_API_KEY=<key>            # Optional. Defaults to the public web-app key
                               #   baked into resy.com's JS. Only override if
                               #   Resy rotates it.
@@ -87,7 +96,12 @@ RESY_API_KEY=<key>            # Optional. Defaults to the public web-app key
 
 ## Testing
 
-Tests live in `tests/` and mirror `src/` 1:1. Run with `npm test`. `tests/helpers.ts` provides an in-memory MCP harness for invoking registered tools without spawning a transport. `vitest.config.ts` enables v8 coverage (text + html) but does **not** enforce thresholds.
+Tests live in `tests/` and mirror `src/` 1:1. Run with `npm test`. `tests/helpers.ts` provides an in-memory MCP harness for invoking registered tools without spawning a transport. `vitest.config.ts` enables v8 coverage (text + html) and enforces a RATCHET
+floor — thresholds set just under the current numbers rather than the fleet's
+100%, because several tool handlers have untested paths. Raise them as coverage
+improves; do not lower them. `tests/_setup.ts` forces the token cache off, pins
+its path into a temp dir, and fails the suite if anything reached the real
+`~/.resy-mcp`.
 
 Write a failing test before implementation. Keep tool tests in `tests/tools/<name>.test.ts` and mock `ResyClient.request`.
 
