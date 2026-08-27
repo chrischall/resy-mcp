@@ -146,6 +146,8 @@ When release-please cuts a release, the `publish` job in `.github/workflows/rele
 
 The MCP Registry's [server.schema.json](https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json) caps `server.json`'s `description` at **100 characters**. Values over that fail `mcp-publisher publish` with HTTP 422 (`validation failed: expected length <= 100, location: body.description`). The other description fields (`manifest.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`) have no published length constraint and can stay longer.
 
+**That cap is on the TOP-LEVEL `description` only** — the 422 names `body.description`, and it is the server's one-line summary. A per-variable description under `packages[].environmentVariables[]` resolves to the schema's `Input.description`, which declares no `maxLength`: the registry currently serves published ones over 300 characters. Do not shorten a variable's help text to satisfy this rule — that trades real documentation for a constraint that does not apply to it.
+
 Sanity-check before committing a description change:
 
 ```bash
