@@ -82,7 +82,7 @@ node dist/bundle.js
 ## Test
 
 ```bash
-npm test             # unit tests (mocked fetch)
+npm test             # tsc typecheck + unit tests (mocked fetch)
 npm run smoke        # live endpoint probe — requires real .env
 ```
 
