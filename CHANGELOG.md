@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.7.0](https://github.com/chrischall/resy-mcp/compare/v0.6.3...v0.7.0) (2026-08-28)
+
+
+### Features
+
+* cache the minted auth token so a restart skips re-minting ([#135](https://github.com/chrischall/resy-mcp/issues/135)) ([b73c21b](https://github.com/chrischall/resy-mcp/commit/b73c21bdb991445a621fa111c680cda8724624f7))
+* **release:** publish resy-fpx alongside resy ([#134](https://github.com/chrischall/resy-mcp/issues/134)) ([2ad5b3c](https://github.com/chrischall/resy-mcp/commit/2ad5b3c6e8d4e34e3ae3e9b502189a89926dd5cb))
+
+
+### Bug Fixes
+
+* drop the bare resy.com apex from mint.yaml egress, tidy .mcpbignore ([#130](https://github.com/chrischall/resy-mcp/issues/130)) ([5b7cc26](https://github.com/chrischall/resy-mcp/commit/5b7cc2609383237c247452bb4369a866d21e9d2c))
+
+
+### Documentation
+
+* list the cache env vars in server.json and .env.example ([#143](https://github.com/chrischall/resy-mcp/issues/143)) ([78b40da](https://github.com/chrischall/resy-mcp/commit/78b40da34c0c3172452312afe3c79d143f2a11cf))
+* **readme:** npm test now typechecks before running vitest ([#142](https://github.com/chrischall/resy-mcp/issues/142)) ([9613f63](https://github.com/chrischall/resy-mcp/commit/9613f636cd7ca092f9094f65e96d14c5c7703fd8))
+* record the token cache in CLAUDE.md ([#140](https://github.com/chrischall/resy-mcp/issues/140)) ([849d1cd](https://github.com/chrischall/resy-mcp/commit/849d1cdda44aa6a2f37d1ffa6bccfd06a02ca541))
+* say which description the registry's 100-char cap applies to ([#145](https://github.com/chrischall/resy-mcp/issues/145)) ([b5de1d7](https://github.com/chrischall/resy-mcp/commit/b5de1d75566e9c6451a84467914c36cabffd3c7c))
+
 ## [0.6.3](https://github.com/chrischall/resy-mcp/compare/v0.6.2...v0.6.3) (2026-08-06)
 
 
