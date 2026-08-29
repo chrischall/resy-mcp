@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/chrischall/resy-mcp/compare/v0.7.0...v0.8.0) (2026-08-29)
+
+
+### Features
+
+* **deps:** take @fetchproxy/server 2.2.0 so the concentrator can bind its sandbox address ([#146](https://github.com/chrischall/resy-mcp/issues/146)) ([0ed3b42](https://github.com/chrischall/resy-mcp/commit/0ed3b42a7d87b0cfbf73ee486cd758a653ebde70))
+
 ## [0.7.0](https://github.com/chrischall/resy-mcp/compare/v0.6.3...v0.7.0) (2026-08-28)
 
 
