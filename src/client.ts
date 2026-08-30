@@ -191,6 +191,28 @@ export class ResyClient {
   }
 
   /**
+   * Which mint path is CONFIGURED, for `resy_healthcheck` — a label, never a
+   * token.
+   *
+   * Deliberately inspects the environment rather than calling `mintToken()`:
+   * minting is side-effecting (path 2 performs a real password login, path 3
+   * opens the fetchproxy bridge), and a healthcheck must not spend a login
+   * attempt or a bridge round-trip just to say what is configured. The PROBE
+   * exercises the real mint, so a path that is configured but broken still
+   * surfaces — as a rejection rather than as "not configured", which is the
+   * honest distinction.
+   *
+   * Mirrors `mintToken`'s path order exactly; if that order changes, this must
+   * move with it or the healthcheck will name the wrong path.
+   */
+  describeCredential(): { source: string | null } {
+    if (readVar('RESY_AUTH_TOKEN')) return { source: 'env token (RESY_AUTH_TOKEN)' };
+    if (readVar('RESY_EMAIL') && readVar('RESY_PASSWORD')) return { source: 'password login' };
+    if (!parseBoolEnv('RESY_DISABLE_FETCHPROXY')) return { source: 'fetchproxy' };
+    return { source: null };
+  }
+
+  /**
    * Resolve a fresh auth token via one of three paths, in priority order:
    *
    * 1. `RESY_AUTH_TOKEN` env — direct override. Power users / CI that

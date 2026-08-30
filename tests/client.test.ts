@@ -563,3 +563,56 @@ describe('ResyClient — a failed re-mint does not re-mint again', () => {
     expect(loginCalls).toHaveLength(2);
   });
 });
+
+// describeCredential runs against the REAL client: its contract is that it
+// mirrors mintToken's path order, and the healthcheck test stubs it out
+// entirely, so nothing else exercises it.
+describe('ResyClient.describeCredential', () => {
+  const saved = { ...process.env };
+  beforeEach(() => {
+    delete process.env.RESY_AUTH_TOKEN;
+    delete process.env.RESY_EMAIL;
+    delete process.env.RESY_PASSWORD;
+    delete process.env.RESY_DISABLE_FETCHPROXY;
+  });
+  afterEach(() => {
+    for (const k of ['RESY_AUTH_TOKEN', 'RESY_EMAIL', 'RESY_PASSWORD', 'RESY_DISABLE_FETCHPROXY']) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  });
+
+  it('path 1 wins: a direct token override', () => {
+    process.env.RESY_AUTH_TOKEN = 't';
+    process.env.RESY_EMAIL = 'a@b.c';
+    process.env.RESY_PASSWORD = 'pw';
+    expect(new ResyClient().describeCredential()).toEqual({ source: 'env token (RESY_AUTH_TOKEN)' });
+  });
+
+  it('path 2: email + password', () => {
+    process.env.RESY_EMAIL = 'a@b.c';
+    process.env.RESY_PASSWORD = 'pw';
+    expect(new ResyClient().describeCredential()).toEqual({ source: 'password login' });
+  });
+
+  // Half a password pair is not path 2 — mintToken requires both, so reporting
+  // "password login" here would name a path that cannot run.
+  it('does not claim path 2 with only half the pair', () => {
+    process.env.RESY_EMAIL = 'a@b.c';
+    expect(new ResyClient().describeCredential()).toEqual({ source: 'fetchproxy' });
+  });
+
+  it('path 3: fetchproxy when nothing else is set', () => {
+    expect(new ResyClient().describeCredential()).toEqual({ source: 'fetchproxy' });
+  });
+
+  it('is null when fetchproxy is disabled and nothing else is configured', () => {
+    process.env.RESY_DISABLE_FETCHPROXY = '1';
+    expect(new ResyClient().describeCredential()).toEqual({ source: null });
+  });
+
+  it('never returns a token', () => {
+    process.env.RESY_AUTH_TOKEN = 'SUPER_SECRET_RESY_TOKEN_VALUE';
+    expect(JSON.stringify(new ResyClient().describeCredential())).not.toContain('SUPER_SECRET_RESY_TOKEN_VALUE');
+  });
+});

@@ -117,6 +117,10 @@
     {
       "name": "resy_remove_notify",
       "description": "Cancel a Priority Notify subscription"
+    },
+    {
+      "name": "resy_healthcheck",
+      "description": "Verify the Resy credential and API reachability: reports which of the three mint paths is configured (env token, password login, fetchproxy), then makes one authenticated call."
     }
   ],
   "compatibility": {

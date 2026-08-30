@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { runMcp } from '@chrischall/mcp-utils';
 import { ResyClient } from './client.js';
+import { registerHealthcheckTools } from './tools/healthcheck.js';
 import { registerUserTools } from './tools/user.js';
 import { registerVenueTools } from './tools/venues.js';
 import { registerReservationTools } from './tools/reservations.js';
@@ -22,6 +23,7 @@ await runMcp<ResyClient>({
     '[resy-mcp] This project was developed and is maintained by AI (Claude Opus 4.7). Use at your own discretion.',
   tools: [
     registerUserTools,
+    registerHealthcheckTools,
     registerVenueTools,
     registerReservationTools,
     registerFavoriteTools,
