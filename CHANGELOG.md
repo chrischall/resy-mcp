@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/chrischall/resy-mcp/compare/v0.8.0...v0.9.0) (2026-08-30)
+
+
+### Features
+
+* add resy_healthcheck ([#149](https://github.com/chrischall/resy-mcp/issues/149)) ([34d1a65](https://github.com/chrischall/resy-mcp/commit/34d1a6504f135ba0921c1d14870f5324b80fb269))
+
 ## [0.8.0](https://github.com/chrischall/resy-mcp/compare/v0.7.0...v0.8.0) (2026-08-29)
 
 
