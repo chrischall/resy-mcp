@@ -63,6 +63,12 @@ export function getWsPort(): number {
   return readPortEnv('RESY_WS_PORT', DEFAULT_WS_PORT);
 }
 
+/**
+ * The tab that relays the bootstrap call. resy.com is canonical — www.resy.com
+ * 301s to it — and must stay inside `domains` below.
+ */
+const BRIDGE_TAB_URL = 'https://resy.com/';
+
 interface RefreshResponse {
   token?: unknown;
 }
@@ -91,7 +97,21 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
     const response = await transport.server.postJson<RefreshResponse>(
       '/3/auth/refresh',
       {},
-      { subdomain: 'api' }
+      {
+        subdomain: 'api',
+        // The REQUEST goes to api.resy.com; the TAB that performs it must be
+        // resy.com. Without this, the transport derives the relay tab from the
+        // request's own host and looks for a tab on api.resy.com — a host that
+        // serves no app and so never has one, failing every mint with "no tab
+        // matching https://api.resy.com/" however signed-in the user was.
+        //
+        // The signed-in resy.com tab issues this exact call as part of the
+        // site's own JS, and its HttpOnly cookies are what authenticate it.
+        // resy.com is the canonical host (www.resy.com 301s to it) and is
+        // inside the declared `domains`, so this widens which tab relays,
+        // never which origins are reachable.
+        viaTab: BRIDGE_TAB_URL,
+      }
     );
     if (
       !response ||

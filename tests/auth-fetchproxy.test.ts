@@ -112,6 +112,28 @@ describe('mintTokenViaFetchproxy', () => {
     await expect(mintTokenViaFetchproxy()).resolves.toBe('tk');
   });
   /**
+   * The relay tab must be named explicitly.
+   *
+   * The bootstrap POSTs `/3/auth/refresh` with `subdomain: 'api'`, and the
+   * transport derives the relaying tab from the REQUEST's host — so it looks
+   * for a tab on api.resy.com. That host serves no app and never has a tab, so
+   * the mint failed with "no tab matching https://api.resy.com/" no matter how
+   * signed in the user was. The signed-in resy.com tab can issue that call
+   * perfectly well; it is what the site's own JS does. `viaTab` names it,
+   * which is the case that option exists for.
+   */
+  it('routes the refresh through the resy.com tab, not the api host', async () => {
+    mockPostJson.mockResolvedValueOnce({ token: 'tk' });
+    await mintTokenViaFetchproxy();
+    expect(mockPostJson).toHaveBeenCalledTimes(1);
+    const [path, body, opts] = mockPostJson.mock.calls[0] as [string, unknown, Record<string, unknown>];
+    expect(path).toBe('/3/auth/refresh');
+    expect(body).toEqual({});
+    // api.resy.com carries the REQUEST; resy.com carries the TAB.
+    expect(opts).toMatchObject({ subdomain: 'api', viaTab: 'https://resy.com/' });
+  });
+
+  /**
    * The bridge port the host hands the child.
    *
    * mcp-host's `bridgePortEnv` names an environment variable and expects the
