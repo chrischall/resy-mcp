@@ -311,6 +311,19 @@ describe('mintTokenViaFetchproxy', () => {
       expect(transport.fetchTimeoutMs).toBeGreaterThan(90_000);
     });
 
+    it('holds the deadline at the library default when the window is short', async () => {
+      // The `max(window + 15s, 30s)` floor. At 5s the derived deadline would be
+      // 20s — BELOW the library's own 30s default, which also governs the
+      // fallback POST, so a short capture window would have quietly shortened
+      // the fallback's budget too. The floor is what stops that, and neither
+      // the 30s default nor the 90s override exercises it.
+      const { transport, capture } = await optsFor({ RESY_CAPTURE_TIMEOUT: '5' });
+      expect(capture.timeoutMs).toBe(5_000);
+      expect(transport.fetchTimeoutMs).toBe(30_000);
+      // The invariant still holds through the floor branch.
+      expect(transport.fetchTimeoutMs).toBeGreaterThan(capture.timeoutMs!);
+    });
+
     it('falls back to the default for junk or an unexpanded placeholder', async () => {
       for (const junk of ['${RESY_CAPTURE_TIMEOUT}', 'soon', '-5', '']) {
         const { capture } = await optsFor({ RESY_CAPTURE_TIMEOUT: junk });

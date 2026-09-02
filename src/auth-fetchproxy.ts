@@ -33,8 +33,15 @@
  * `close()` is `close()`. No behavior change versus the prior direct
  * construction — just the shared lifecycle wrapper.
  */
-import { createBootstrapOpts, createFetchproxyTransport } from '@chrischall/mcp-utils/fetchproxy';
-import type { Capability } from '@fetchproxy/protocol';
+import {
+  createBootstrapOpts,
+  createFetchproxyTransport,
+  // `Capability` comes from @fetchproxy/protocol, which is a transitive
+  // dependency here, not a declared one — importing it directly worked only
+  // because the package manager happened to hoist it. Taken from the module
+  // this file already imports from, which re-exports it and IS declared.
+  type Capability,
+} from '@chrischall/mcp-utils/fetchproxy';
 import { readPortEnv, readTtlMsEnv } from '@chrischall/mcp-utils';
 
 // Kept in sync with package.json by release-please via the
@@ -106,12 +113,16 @@ const CAPTURE_TIMEOUT_MS = readTtlMsEnv('RESY_CAPTURE_TIMEOUT', 30_000);
  * library default — and this is load-bearing, not tidiness.
  *
  * `captureRequestHeader`'s own `timeoutMs` is silently capped by
- * `fetchTimeoutMs` (default 30_000), and the error that fires names the
- * DEADLINE's number rather than the one the caller passed
- * (fetchproxy#277). So a window raised past the deadline fails early while
- * claiming to be something it is not — which cost three misdiagnoses before the
- * number in the message was noticed as one nobody had set. Deriving the
- * deadline from the window means the two can never disagree.
+ * `fetchTimeoutMs` (default 30_000): the per-call value reaches the extension
+ * but does not move this server's deadline, so the shorter one wins. Since
+ * @fetchproxy/server 2.4.2 the timeout at least SAYS so (fetchproxy#277);
+ * before that it reported only the deadline's own number, and a window raised
+ * past it failed early while claiming to be something it was not — which cost
+ * three misdiagnoses before the number was noticed as one nobody had set.
+ *
+ * The better message does not make this derivation redundant: it explains the
+ * collision, where deriving the deadline from the window prevents it. Nothing
+ * here should depend on reading an error correctly.
  *
  * The floor keeps the FALLBACK's budget at the library default when the window
  * is short or disabled: the deadline governs that POST too.
