@@ -18,15 +18,28 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const mockListen = vi.fn();
 const mockClose = vi.fn();
 const mockPostJson = vi.fn();
+const mockCapture = vi.fn();
 const mockConstructor = vi.fn();
 
 vi.mock('@chrischall/mcp-utils/fetchproxy', () => ({
+  // Mirrors the real helper closely enough to assert on: it derives the
+  // capability from the declaration, which is the property that stops a
+  // capture being declared without its verb unlocked.
+  createBootstrapOpts: (args: { domains: string | string[]; bootstrap?: { captureHeaders?: unknown[] } }) => ({
+    domains: Array.isArray(args.domains) ? args.domains : [args.domains],
+    ...(args.bootstrap?.captureHeaders
+      ? {
+          captureHeaders: args.bootstrap.captureHeaders,
+          capabilities: ['fetch', 'capture_request_header'],
+        }
+      : {}),
+  }),
   createFetchproxyTransport: (opts: unknown) => {
     mockConstructor(opts);
     return {
       start: mockListen,
       close: mockClose,
-      server: { postJson: mockPostJson },
+      server: { postJson: mockPostJson, captureRequestHeader: mockCapture },
     };
   },
 }));
@@ -39,6 +52,10 @@ describe('mintTokenViaFetchproxy', () => {
     mockListen.mockReset().mockResolvedValue(undefined);
     mockClose.mockReset().mockResolvedValue(undefined);
     mockPostJson.mockReset();
+    // Capture is the PRIMARY path, so it must fail by default or every
+    // pre-existing test asserting the /3/auth/refresh fallback would stop
+    // exercising it.
+    mockCapture.mockReset().mockRejectedValue(new Error('no capture in this test'));
     mockConstructor.mockReset();
     ({ mintTokenViaFetchproxy } = await import('../src/auth-fetchproxy.js'));
   });
@@ -111,6 +128,70 @@ describe('mintTokenViaFetchproxy', () => {
     // Token should still come back successfully
     await expect(mintTokenViaFetchproxy()).resolves.toBe('tk');
   });
+  /**
+   * Reading the token off the page's own traffic, rather than asking for one.
+   *
+   * `/3/auth/refresh` is a CROSS-ORIGIN POST to api.resy.com, and the isolated
+   * world cannot make those — measured against the live bridge, a same-origin
+   * GET to resy.com returns 200 while every api.resy.com call fails with
+   * "Failed to fetch". resy.com's own JS makes that call constantly and sends
+   * `x-resy-auth-token` with it, so the bridge does not need to issue a
+   * request at all: it can snapshot the header off one the page already made.
+   *
+   * Cheaper and narrower than routing a credentialed request through the MAIN
+   * world (`fetch_in_page`): nothing crosses into the page, and no request is
+   * exposed to a patched `window.fetch`.
+   */
+  describe('capture-first mint', () => {
+    it('declares the capture and the capability that unlocks it', async () => {
+      mockCapture.mockResolvedValueOnce('captured-tk-aaaaaaaaaaaaaaaaaaaaaa');
+      await mintTokenViaFetchproxy();
+      const opts = mockConstructor.mock.calls[0][0] as {
+        capabilities?: string[];
+        captureHeaders?: Array<{ host: string; headerName: string }>;
+        domains: string[];
+      };
+      expect(opts.capabilities).toContain('capture_request_header');
+      // Regression: createBootstrapOpts derives capabilities from the
+      // declarations only, so taking it verbatim drops the fetch verb the
+      // /3/auth/refresh fallback needs — seen live as
+      // `capability "fetch" not granted (declared: [capture_request_header])`.
+      expect(opts.capabilities).toContain('fetch');
+      expect(opts.captureHeaders).toEqual([
+        { host: 'api.resy.com', path: '/*', headerName: 'x-resy-auth-token' },
+      ]);
+      // The capture target is a subdomain of the declared trust boundary.
+      expect(opts.domains).toEqual(['resy.com']);
+    });
+
+    it('returns the captured header without issuing any request', async () => {
+      mockCapture.mockResolvedValueOnce('captured-tk-aaaaaaaaaaaaaaaaaaaaaa');
+      const token = await mintTokenViaFetchproxy();
+      expect(token).toBe('captured-tk-aaaaaaaaaaaaaaaaaaaaaa');
+      expect(mockPostJson).not.toHaveBeenCalled();
+      expect(mockClose).toHaveBeenCalled();
+    });
+
+    it('ignores a captured value too short to be a token and falls back', async () => {
+      mockCapture.mockResolvedValueOnce('');
+      mockPostJson.mockResolvedValueOnce({ token: 'refresh-tk' });
+      expect(await mintTokenViaFetchproxy()).toBe('refresh-tk');
+    });
+
+    it('falls back to /3/auth/refresh when nothing is captured in time', async () => {
+      mockCapture.mockRejectedValueOnce(new Error('capture timed out'));
+      mockPostJson.mockResolvedValueOnce({ token: 'refresh-tk' });
+      expect(await mintTokenViaFetchproxy()).toBe('refresh-tk');
+      expect(mockPostJson).toHaveBeenCalledTimes(1);
+    });
+
+    it('names BOTH failures when neither path yields a token', async () => {
+      mockCapture.mockRejectedValueOnce(new Error('capture timed out'));
+      mockPostJson.mockRejectedValueOnce(new Error('fetch threw: Failed to fetch'));
+      await expect(mintTokenViaFetchproxy()).rejects.toThrow(/capture timed out[\s\S]*Failed to fetch/);
+    });
+  });
+
   /**
    * The relay tab must be named explicitly.
    *

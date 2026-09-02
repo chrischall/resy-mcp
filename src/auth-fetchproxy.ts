@@ -33,7 +33,7 @@
  * `close()` is `close()`. No behavior change versus the prior direct
  * construction — just the shared lifecycle wrapper.
  */
-import { createFetchproxyTransport } from '@chrischall/mcp-utils/fetchproxy';
+import { createBootstrapOpts, createFetchproxyTransport } from '@chrischall/mcp-utils/fetchproxy';
 import { readPortEnv } from '@chrischall/mcp-utils';
 
 // Kept in sync with package.json by release-please via the
@@ -64,6 +64,34 @@ export function getWsPort(): number {
 }
 
 /**
+ * Where the token is READ from, rather than asked for.
+ *
+ * resy.com's own JS calls api.resy.com constantly and sends
+ * `x-resy-auth-token` with every one. Snapshotting that header off a request
+ * the page already made needs no request of our own — which matters, because
+ * the request of our own is the thing that does not work: `/3/auth/refresh` is
+ * CROSS-ORIGIN to the tab, and the isolated world cannot make those. Measured
+ * against the live bridge, a same-origin GET to resy.com returns 200 while
+ * every api.resy.com call fails with "Failed to fetch".
+ *
+ * `createBootstrapOpts` derives the `capture_request_header` capability from
+ * this declaration, so the verb cannot be declared without being unlocked.
+ * Widening the capability changes the requested scope, so the extension asks
+ * the user to approve the pairing again.
+ */
+const CAPTURE_DECL = {
+  host: 'api.resy.com',
+  path: '/*',
+  headerName: 'x-resy-auth-token',
+} as const;
+
+/** How long to wait for the page to make a request we can read. */
+const CAPTURE_TIMEOUT_MS = 15_000;
+
+/** Shortest plausible Resy token; guards against an empty/echoed header. */
+const MIN_TOKEN_LENGTH = 20;
+
+/**
  * The tab that relays the bootstrap call. resy.com is canonical — www.resy.com
  * 301s to it — and must stay inside `domains` below.
  */
@@ -83,10 +111,20 @@ interface RefreshResponse {
  */
 export async function mintTokenViaFetchproxy(): Promise<string> {
   const transport = createFetchproxyTransport({
+    ...createBootstrapOpts({
+      domains: 'resy.com',
+      bootstrap: { captureHeaders: [{ ...CAPTURE_DECL }] },
+    }),
+    // `createBootstrapOpts` derives `capabilities` from the DECLARATIONS
+    // alone, and 'fetch' is not one of them — so taking its output verbatim
+    // declares `capture_request_header` and silently drops the fetch verb the
+    // fallback below needs. Observed live as:
+    //   capability "fetch" not granted (declared: [capture_request_header])
+    // Restore it explicitly. (@chrischall/mcp-utils 0.19.3.)
+    capabilities: ['fetch', 'capture_request_header'],
     port: getWsPort(),
     serverName: PACKAGE_NAME,
     version: PACKAGE_VERSION,
-    domains: ['resy.com'],
     // keepAliveIntervalMs is no longer set here: @fetchproxy/server 0.10.0
     // defaults it to 25_000 — the same cadence we relied on to keep the SW
     // resident through the token-refresh window (fetchproxy#72).
@@ -94,7 +132,35 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
 
   try {
     await transport.start();
-    const response = await transport.server.postJson<RefreshResponse>(
+
+    // 1. READ a token off the page's own traffic. The path that works today:
+    //    no request of ours crosses an origin, so the isolated world's
+    //    cross-origin block does not apply.
+    let captureError: string;
+    try {
+      const captured = await transport.server.captureRequestHeader({
+        ...CAPTURE_DECL,
+        timeoutMs: CAPTURE_TIMEOUT_MS,
+      });
+      if (typeof captured === 'string' && captured.length >= MIN_TOKEN_LENGTH) {
+        return captured;
+      }
+      // A present-but-implausible header is a capture that technically
+      // succeeded and is not a token — say so rather than reporting a timeout.
+      captureError =
+        `${CAPTURE_DECL.headerName} was present on ${CAPTURE_DECL.host} but too short ` +
+        `to be a token (${typeof captured === 'string' ? captured.length : 0} chars)`;
+    } catch (e) {
+      captureError = (e as Error).message;
+    }
+
+    // 2. ASK for one. Cross-origin, so this needs the MAIN world
+    //    (`fetch_in_page`, fetchproxy#267) to succeed from a browser tab; it
+    //    stays as the fallback because it is the path that does not depend on
+    //    the page happening to make a request while we listen.
+    let response: RefreshResponse;
+    try {
+      response = await transport.server.postJson<RefreshResponse>(
       '/3/auth/refresh',
       {},
       {
@@ -112,13 +178,24 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
         // never which origins are reachable.
         viaTab: BRIDGE_TAB_URL,
       }
-    );
+      );
+    } catch (e) {
+      // BOTH failures, or the message names only the fallback and reads as if
+      // capture was never tried — the reverse of what actually happened.
+      throw new Error(
+        `fetchproxy: header capture failed (${captureError}) and ` +
+          `/3/auth/refresh failed (${(e as Error).message})`,
+      );
+    }
     if (
       !response ||
       typeof response.token !== 'string' ||
       response.token.length === 0
     ) {
-      throw new Error('fetchproxy: /3/auth/refresh returned no token');
+      throw new Error(
+        `fetchproxy: header capture failed (${captureError}) and ` +
+          '/3/auth/refresh returned no token',
+      );
     }
     return response.token;
   } finally {
