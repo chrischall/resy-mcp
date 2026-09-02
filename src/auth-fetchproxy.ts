@@ -35,7 +35,7 @@
  */
 import { createBootstrapOpts, createFetchproxyTransport } from '@chrischall/mcp-utils/fetchproxy';
 import type { Capability } from '@fetchproxy/protocol';
-import { readPortEnv } from '@chrischall/mcp-utils';
+import { readPortEnv, readTtlMsEnv } from '@chrischall/mcp-utils';
 
 // Kept in sync with package.json by release-please via the
 // `x-release-please-version` marker on PACKAGE_VERSION below
@@ -86,8 +86,37 @@ const CAPTURE_DECL = {
   headerName: 'x-resy-auth-token',
 } as const;
 
-/** How long to wait for the page to make a request we can read. */
-const CAPTURE_TIMEOUT_MS = 15_000;
+/**
+ * How long to wait for the page to make a request we can read.
+ *
+ * The window IS the feature: capture resolves on the NEXT matching request, so
+ * nothing that happened before the listener came up counts. At 15s a cold start
+ * against an idle tab captured nothing and fell through to the CORS-blocked
+ * fallback; a reload inside a generous window captures a real token first try.
+ *
+ * 30s is the trade — long enough that an ordinary page load or navigation lands
+ * inside it, short enough that a genuinely idle tab does not hang a tool call
+ * for minutes. `RESY_CAPTURE_TIMEOUT` (in SECONDS) tunes it per deployment: a
+ * hosted child, which cannot ask anyone to reload anything, wants more.
+ */
+const CAPTURE_TIMEOUT_MS = readTtlMsEnv('RESY_CAPTURE_TIMEOUT', 30_000);
+
+/**
+ * The transport-wide deadline, derived from the window rather than left at the
+ * library default — and this is load-bearing, not tidiness.
+ *
+ * `captureRequestHeader`'s own `timeoutMs` is silently capped by
+ * `fetchTimeoutMs` (default 30_000), and the error that fires names the
+ * DEADLINE's number rather than the one the caller passed
+ * (fetchproxy#277). So a window raised past the deadline fails early while
+ * claiming to be something it is not — which cost three misdiagnoses before the
+ * number in the message was noticed as one nobody had set. Deriving the
+ * deadline from the window means the two can never disagree.
+ *
+ * The floor keeps the FALLBACK's budget at the library default when the window
+ * is short or disabled: the deadline governs that POST too.
+ */
+const BRIDGE_DEADLINE_MS = Math.max(CAPTURE_TIMEOUT_MS + 15_000, 30_000);
 
 /** Shortest plausible Resy token; guards against an empty/echoed header. */
 const MIN_TOKEN_LENGTH = 20;
@@ -148,6 +177,7 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
       }),
     ),
     port: getWsPort(),
+    fetchTimeoutMs: BRIDGE_DEADLINE_MS,
     serverName: PACKAGE_NAME,
     version: PACKAGE_VERSION,
     // keepAliveIntervalMs is no longer set here: @fetchproxy/server 0.10.0

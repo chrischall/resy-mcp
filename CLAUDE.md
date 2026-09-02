@@ -87,6 +87,11 @@ RESY_DISABLE_FETCHPROXY=1     # Opt out of the fetchproxy fallback (Path 3).
 RESY_TOKEN_CACHE=false        # Opt out of the on-disk token cache (default on).
 RESY_TOKEN_FILE=<path>        # Override the cache path. Defaults to
                               #   $MCP_DATA_DIR/.resy-mcp/token.json.
+RESY_CAPTURE_TIMEOUT=<secs>   # Seconds to wait for the page to make an API
+                              #   call the bridge can read the token off.
+                              #   Defaults to 30. The transport deadline is
+                              #   derived from this, never left at the library
+                              #   default — see auth-fetchproxy.ts.
 RESY_WS_PORT=<port>           # fetchproxy bridge port. Defaults to 37149, the
                               #   port the WHOLE fleet shares (the Transporter
                               #   extension dials it). Override for local dev,
