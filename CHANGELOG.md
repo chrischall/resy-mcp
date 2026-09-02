@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.12.0](https://github.com/chrischall/resy-mcp/compare/v0.11.0...v0.12.0) (2026-09-02)
+
+
+### Features
+
+* **fetchproxy:** route the refresh fallback through the page's MAIN world ([#175](https://github.com/chrischall/resy-mcp/issues/175)) ([26baab1](https://github.com/chrischall/resy-mcp/commit/26baab14243c167e6aeadc53f3a3029f3ff09b1c))
+* **fetchproxy:** widen the capture window and derive the bridge deadline ([#178](https://github.com/chrischall/resy-mcp/issues/178)) ([8fb9188](https://github.com/chrischall/resy-mcp/commit/8fb918885f6c3bce94e52624464776030d41dff7))
+
+
+### Bug Fixes
+
+* **fetchproxy:** import Capability from a declared dependency, and test the floor ([#180](https://github.com/chrischall/resy-mcp/issues/180)) ([3f1fbc7](https://github.com/chrischall/resy-mcp/commit/3f1fbc72597db254572064433f28127883670a71))
+
 ## [0.11.0](https://github.com/chrischall/resy-mcp/compare/v0.10.0...v0.11.0) (2026-09-02)
 
 

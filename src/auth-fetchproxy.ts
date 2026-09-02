@@ -48,7 +48,7 @@ import { readPortEnv, readTtlMsEnv } from '@chrischall/mcp-utils';
 // `x-release-please-version` marker on PACKAGE_VERSION below
 // (registered in release-please-config.json `extra-files`).
 const PACKAGE_NAME = 'resy-mcp';
-const PACKAGE_VERSION = '0.11.0'; // x-release-please-version
+const PACKAGE_VERSION = '0.12.0'; // x-release-please-version
 
 /**
  * The fetchproxy concentrator port.
