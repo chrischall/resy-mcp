@@ -34,6 +34,7 @@
  * construction — just the shared lifecycle wrapper.
  */
 import { createBootstrapOpts, createFetchproxyTransport } from '@chrischall/mcp-utils/fetchproxy';
+import type { Capability } from '@fetchproxy/protocol';
 import { readPortEnv } from '@chrischall/mcp-utils';
 
 // Kept in sync with package.json by release-please via the
@@ -102,6 +103,22 @@ interface RefreshResponse {
 }
 
 /**
+ * Add `fetch_in_page` to a derived capability set without restating it.
+ *
+ * `createBootstrapOpts` infers capabilities from bootstrap DECLARATIONS;
+ * `fetch_in_page` gates a verb instead, so nothing about the declaration
+ * implies it. Extending the derived array keeps the capture's capability
+ * derived (the property worth having) while adding the one that is not
+ * derivable.
+ */
+function withInPage<T extends { capabilities?: readonly Capability[] }>(opts: T): T {
+  return {
+    ...opts,
+    capabilities: [...(opts.capabilities ?? ['fetch']), 'fetch_in_page' as Capability],
+  };
+}
+
+/**
  * Bootstrap a Resy auth token by calling `/3/auth/refresh` through the
  * user's signed-in resy.com browser tab via fetchproxy.
  *
@@ -111,18 +128,25 @@ interface RefreshResponse {
  */
 export async function mintTokenViaFetchproxy(): Promise<string> {
   const transport = createFetchproxyTransport({
-    // `capabilities` comes from here, derived from the declaration above, so
-    // the capture and the verb that gates it cannot drift apart. It yields
+    // `capabilities` is derived from the declaration above, so the capture and
+    // the verb that gates it cannot drift apart. It yields
     // ['fetch', 'capture_request_header'] — `fetch` included because the field
     // REPLACES the server's default rather than extending it, which is what
     // made an earlier build declare only the capture and lose the verb the
-    // fallback below needs (`capability "fetch" not granted`). That is why the
-    // dependency floor is ^0.19.4: 0.19.2/0.19.3 omit `fetch` here, and this
-    // call site cannot tell.
-    ...createBootstrapOpts({
-      domains: 'resy.com',
-      bootstrap: { captureHeaders: [{ ...CAPTURE_DECL }] },
-    }),
+    // fallback needs (`capability "fetch" not granted`). That is why the
+    // @chrischall/mcp-utils floor is ^0.19.4: 0.19.2/0.19.3 omit `fetch` here,
+    // and this call site cannot tell.
+    //
+    // `fetch_in_page` is EXTENDED onto that derived set rather than replacing
+    // it: it gates a verb, not a bootstrap declaration, so the helper has no
+    // way to infer it — and hand-listing the whole set again is what the
+    // helper exists to stop.
+    ...withInPage(
+      createBootstrapOpts({
+        domains: 'resy.com',
+        bootstrap: { captureHeaders: [{ ...CAPTURE_DECL }] },
+      }),
+    ),
     port: getWsPort(),
     serverName: PACKAGE_NAME,
     version: PACKAGE_VERSION,
@@ -178,6 +202,14 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
         // inside the declared `domains`, so this widens which tab relays,
         // never which origins are reachable.
         viaTab: BRIDGE_TAB_URL,
+        // Issue it from the page's own world. The isolated world cannot make
+        // this cross-origin call at all (see the comment on CAPTURE_DECL), and
+        // the MAIN world is the one resy.com's own JS makes it from.
+        //
+        // Scoped to this ONE request, which is the point of the capability
+        // being per-call: everything else this MCP does stays in the isolated
+        // world, where the page cannot see or alter it.
+        inPage: true,
       }
       );
     } catch (e) {

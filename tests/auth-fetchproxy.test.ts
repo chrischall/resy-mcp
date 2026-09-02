@@ -195,6 +195,45 @@ describe('mintTokenViaFetchproxy', () => {
   });
 
   /**
+   * The fallback needs the MAIN world to be reachable at all.
+   *
+   * `/3/auth/refresh` is CROSS-ORIGIN to the relaying resy.com tab, and the
+   * isolated world cannot make those — which is why capture came first. The
+   * MAIN world can: it is the world resy.com's own JS runs in, and it makes
+   * that exact call. `fetch_in_page` (fetchproxy 2.4.0) routes one request
+   * there, so the fallback becomes usable instead of guaranteed to fail.
+   *
+   * This matters for the case capture cannot serve: a cold start against an
+   * IDLE tab, where no request arrives to read a header from.
+   */
+  describe('the /3/auth/refresh fallback runs in the page', () => {
+    it('declares fetch_in_page alongside the derived capabilities', async () => {
+      mockPostJson.mockResolvedValueOnce({ token: 'tk' });
+      await mintTokenViaFetchproxy();
+      const opts = mockConstructor.mock.calls[0][0] as { capabilities?: string[] };
+      expect(opts.capabilities).toEqual(
+        expect.arrayContaining(['fetch', 'capture_request_header', 'fetch_in_page']),
+      );
+    });
+
+    it('sets inPage on the refresh call, beside the relay tab', async () => {
+      mockPostJson.mockResolvedValueOnce({ token: 'tk' });
+      await mintTokenViaFetchproxy();
+      const [, , opts] = mockPostJson.mock.calls[0] as [string, unknown, Record<string, unknown>];
+      // All three are load-bearing and independent: api.resy.com carries the
+      // REQUEST, resy.com carries the TAB, and the page's own world ISSUES it.
+      expect(opts).toMatchObject({ subdomain: 'api', viaTab: 'https://resy.com/', inPage: true });
+    });
+
+    it('still prefers capture — inPage is the fallback, not the default', async () => {
+      mockCapture.mockResolvedValueOnce('captured-tk-aaaaaaaaaaaaaaaaaaaaaa');
+      await mintTokenViaFetchproxy();
+      // Nothing was routed through the page when a header was there to read.
+      expect(mockPostJson).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
    * The relay tab must be named explicitly.
    *
    * The bootstrap POSTs `/3/auth/refresh` with `subdomain: 'api'`, and the
