@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/chrischall/resy-mcp/compare/v0.9.0...v0.9.1) (2026-09-02)
+
+
+### Bug Fixes
+
+* **venues:** parse Resy's space-separated slot timestamps ([#160](https://github.com/chrischall/resy-mcp/issues/160)) ([0398290](https://github.com/chrischall/resy-mcp/commit/0398290d6b13e12e4b3d054e9446a8ec2557f9ec))
+
 ## [0.9.0](https://github.com/chrischall/resy-mcp/compare/v0.8.0...v0.9.0) (2026-08-30)
 
 
