@@ -33,8 +33,15 @@
  * `close()` is `close()`. No behavior change versus the prior direct
  * construction — just the shared lifecycle wrapper.
  */
-import { createBootstrapOpts, createFetchproxyTransport } from '@chrischall/mcp-utils/fetchproxy';
-import type { Capability } from '@fetchproxy/protocol';
+import {
+  createBootstrapOpts,
+  createFetchproxyTransport,
+  // `Capability` comes from @fetchproxy/protocol, which is a transitive
+  // dependency here, not a declared one — importing it directly worked only
+  // because the package manager happened to hoist it. Taken from the module
+  // this file already imports from, which re-exports it and IS declared.
+  type Capability,
+} from '@chrischall/mcp-utils/fetchproxy';
 import { readPortEnv, readTtlMsEnv } from '@chrischall/mcp-utils';
 
 // Kept in sync with package.json by release-please via the
