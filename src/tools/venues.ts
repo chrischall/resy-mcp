@@ -33,21 +33,24 @@ export interface FormattedSlot {
 }
 
 /**
- * Parse "HH:MM" directly from an ISO-ish string like "2026-05-01T19:00:00".
- * Avoids `new Date()` so slot times aren't shifted by the caller's timezone
- * (Resy returns times in the restaurant's local zone with no offset).
+ * Parse "HH:MM" out of a slot's `date.start`. Avoids `new Date()` so slot times
+ * aren't shifted by the caller's timezone (Resy returns times in the
+ * restaurant's local zone with no offset).
  *
- * Re-exported alias over the fleet-shared `extractTime` (which prefers the
- * post-`T` component and returns `''` on no match — identical behavior for
- * Resy's ISO slot timestamps). Kept exported for API stability.
+ * Resy sends this field SPACE-separated — `"2026-05-01 19:00:00"` — on both
+ * `/3/venuesearch/search` and `/4/find`, NOT the ISO `T` form. The fleet-shared
+ * `extractTime` keys on the post-`T` component and returns `''` for the space
+ * form, so normalize the separator before delegating; everything else
+ * (a bare `HH:MM[:SS]`, missing input) is already handled there.
  */
-export const extractHHMM = (start: string | undefined): string => extractTime(start);
+export const extractHHMM = (start: string | undefined): string =>
+  extractTime(start?.replace(' ', 'T'));
 
 function formatSlot(raw: RawSlot, day: string, partySize: number): FormattedSlot {
   return {
     config_token: raw.config?.token ?? '',
     date: day,
-    time: extractTime(raw.date?.start),
+    time: extractHHMM(raw.date?.start),
     party_size: partySize,
     type: raw.config?.type ?? 'Dining Room',
   };

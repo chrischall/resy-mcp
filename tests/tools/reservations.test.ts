@@ -279,7 +279,7 @@ describe('reservation tools (list/cancel)', () => {
           venues: [{
             slots: opts.slots.map((s) => ({
               config: { token: s.token, type: s.type ?? 'Dining Room' },
-              date: { start: `2026-05-01T${s.time}:00`, end: '' },
+              date: { start: `2026-05-01 ${s.time}:00`, end: '' },
             })),
           }],
         },
@@ -367,8 +367,8 @@ describe('reservation tools (list/cancel)', () => {
         results: {
           venues: [{
             slots: [
-              { config: { token: 'cfg-630', type: 'Dining Room' }, date: { start: '2026-05-01T18:30:00' } },
-              { config: { token: 'cfg-730', type: 'Dining Room' }, date: { start: '2026-05-01T19:30:00' } },
+              { config: { token: 'cfg-630', type: 'Dining Room' }, date: { start: '2026-05-01 18:30:00' } },
+              { config: { token: 'cfg-730', type: 'Dining Room' }, date: { start: '2026-05-01 19:30:00' } },
             ],
           }],
         },
@@ -411,7 +411,7 @@ describe('reservation tools (list/cancel)', () => {
     it('uses explicit payment_method_id when provided and skips /2/user', async () => {
       mockRequest
         .mockResolvedValueOnce({
-          results: { venues: [{ slots: [{ config: { token: 'cfg', type: 'DR' }, date: { start: '2026-05-01T19:00:00' } }] }] },
+          results: { venues: [{ slots: [{ config: { token: 'cfg', type: 'DR' }, date: { start: '2026-05-01 19:00:00' } }] }] },
         })
         .mockResolvedValueOnce({
           book_token: { value: 'BK', date_expires: '' },
