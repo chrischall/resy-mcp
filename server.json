@@ -6,12 +6,12 @@
     "url": "https://github.com/chrischall/resy-mcp",
     "source": "github"
   },
-  "version": "0.9.1",
+  "version": "0.10.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "resy-mcp",
-      "version": "0.9.1",
+      "version": "0.10.0",
       "transport": {
         "type": "stdio"
       },
@@ -62,7 +62,7 @@
         },
         {
           "name": "RESY_WS_PORT",
-          "description": "Port for the fetchproxy bridge. The whole fleet shares 37149 (the Transporter extension dials it), so override only for local development, test isolation, or a hosted bridged registration \u2014 this is the variable to name in the registration's bridgePortEnv.",
+          "description": "Port for the fetchproxy bridge. The whole fleet shares 37149 (the Transporter extension dials it), so override only for local development, test isolation, or a hosted bridged registration — this is the variable to name in the registration's bridgePortEnv.",
           "isRequired": false,
           "format": "number"
         }

@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.0](https://github.com/chrischall/resy-mcp/compare/v0.9.1...v0.10.0) (2026-09-02)
+
+
+### Features
+
+* **fetchproxy:** read the bridge port from RESY_WS_PORT ([#164](https://github.com/chrischall/resy-mcp/issues/164)) ([43353f4](https://github.com/chrischall/resy-mcp/commit/43353f49436683893a0dde5a3d865e602c180f2b))
+
+
+### Documentation
+
+* **server.json:** list RESY_WS_PORT with the other environment variables ([#168](https://github.com/chrischall/resy-mcp/issues/168)) ([031661b](https://github.com/chrischall/resy-mcp/commit/031661b06734e3d877d2e1bb24530eb2a0e5617d))
+
 ## [0.9.1](https://github.com/chrischall/resy-mcp/compare/v0.9.0...v0.9.1) (2026-09-02)
 
 
