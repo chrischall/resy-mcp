@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.0](https://github.com/chrischall/resy-mcp/compare/v0.10.0...v0.11.0) (2026-09-02)
+
+
+### Features
+
+* **fetchproxy:** read the auth token off the page's own traffic ([#173](https://github.com/chrischall/resy-mcp/issues/173)) ([28b30d5](https://github.com/chrischall/resy-mcp/commit/28b30d57a18fd6fc01a2fb9d3525ba3755c28afe))
+
+
+### Bug Fixes
+
+* **deps:** take the capabilities fix from @chrischall/mcp-utils 0.19.4 ([#174](https://github.com/chrischall/resy-mcp/issues/174)) ([0deca28](https://github.com/chrischall/resy-mcp/commit/0deca285220ec77ab72f4d3cf05508478c5b648f))
+* **fetchproxy:** relay the token bootstrap through the resy.com tab ([#171](https://github.com/chrischall/resy-mcp/issues/171)) ([5a18673](https://github.com/chrischall/resy-mcp/commit/5a18673329e22afb9cd7d31a40f5ac2ba8f1baac))
+
 ## [0.10.0](https://github.com/chrischall/resy-mcp/compare/v0.9.1...v0.10.0) (2026-09-02)
 
 
