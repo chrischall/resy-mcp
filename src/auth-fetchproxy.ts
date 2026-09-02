@@ -34,12 +34,34 @@
  * construction — just the shared lifecycle wrapper.
  */
 import { createFetchproxyTransport } from '@chrischall/mcp-utils/fetchproxy';
+import { readPortEnv } from '@chrischall/mcp-utils';
 
 // Kept in sync with package.json by release-please via the
 // `x-release-please-version` marker on PACKAGE_VERSION below
 // (registered in release-please-config.json `extra-files`).
 const PACKAGE_NAME = 'resy-mcp';
 const PACKAGE_VERSION = '0.9.1'; // x-release-please-version
+
+/**
+ * The fetchproxy concentrator port.
+ *
+ * ONE port for the whole fleet: the Transporter extension dials it and the
+ * servers host/peer-elect on it, so a "unique" per-MCP default would simply not
+ * be found. `RESY_WS_PORT` overrides it for local development, test isolation —
+ * and, the reason it exists at all, for a HOSTED bridged registration, where
+ * mcp-host names this variable in the registration's `bridgePortEnv` and places
+ * the child's port in it. Without a variable to read, `bridgePortEnv` would name
+ * something nothing consumed: the host would believe it had placed the bridge
+ * while the child listened elsewhere.
+ *
+ * `readPortEnv` (not `Number(...)`) because the value arrives from a host
+ * template: an unsubstituted `${RESY_WS_PORT}` or any junk falls back to the
+ * default instead of handing `NaN` to the server.
+ */
+const DEFAULT_WS_PORT = 37_149;
+export function getWsPort(): number {
+  return readPortEnv('RESY_WS_PORT', DEFAULT_WS_PORT);
+}
 
 interface RefreshResponse {
   token?: unknown;
@@ -55,6 +77,7 @@ interface RefreshResponse {
  */
 export async function mintTokenViaFetchproxy(): Promise<string> {
   const transport = createFetchproxyTransport({
+    port: getWsPort(),
     serverName: PACKAGE_NAME,
     version: PACKAGE_VERSION,
     domains: ['resy.com'],

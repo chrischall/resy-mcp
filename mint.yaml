@@ -10,7 +10,8 @@ summary: >-
 # tab via the fetchproxy bridge. A bridged registration also needs runtime
 # `fly-shared`, `bridge: true` and a `bridgePortEnv`, which are registration
 # fields this manifest has no schema for (set them over the control API).
-# `state.dataDir` below is required for `bridge`.
+# `state.dataDir` below is required for `bridge`. The port variable to name in
+# `bridgePortEnv` is RESY_WS_PORT, declared below.
 env:
   - name: RESY_EMAIL
     required: false
@@ -49,6 +50,13 @@ env:
     help: >-
       Absolute path for the token cache file. Defaults to
       $MCP_DATA_DIR/.resy-mcp/token.json.
+  - name: RESY_WS_PORT
+    required: false
+    help: >-
+      Port for the fetchproxy bridge. The whole fleet shares 37149 (the
+      Transporter extension dials it), so override only for local development,
+      test isolation, or a hosted bridged registration — this is the variable
+      to name in the registration's bridgePortEnv.
 state:
   dataDir: true
   reason: >-
