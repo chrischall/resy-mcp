@@ -152,10 +152,12 @@ describe('mintTokenViaFetchproxy', () => {
         domains: string[];
       };
       expect(opts.capabilities).toContain('capture_request_header');
-      // Regression: createBootstrapOpts derives capabilities from the
-      // declarations only, so taking it verbatim drops the fetch verb the
-      // /3/auth/refresh fallback needs — seen live as
-      // `capability "fetch" not granted (declared: [capture_request_header])`.
+      // The fallback POST needs the fetch verb, and `capabilities` REPLACES
+      // the server's default rather than extending it — so a declaration that
+      // does not carry `fetch` silently locks it. Supplied by
+      // createBootstrapOpts since @chrischall/mcp-utils 0.19.4 (the floor in
+      // package.json); asserted here because this call site is where losing it
+      // would surface, as `capability "fetch" not granted`.
       expect(opts.capabilities).toContain('fetch');
       expect(opts.captureHeaders).toEqual([
         { host: 'api.resy.com', path: '/*', headerName: 'x-resy-auth-token' },

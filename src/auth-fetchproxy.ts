@@ -111,17 +111,18 @@ interface RefreshResponse {
  */
 export async function mintTokenViaFetchproxy(): Promise<string> {
   const transport = createFetchproxyTransport({
+    // `capabilities` comes from here, derived from the declaration above, so
+    // the capture and the verb that gates it cannot drift apart. It yields
+    // ['fetch', 'capture_request_header'] — `fetch` included because the field
+    // REPLACES the server's default rather than extending it, which is what
+    // made an earlier build declare only the capture and lose the verb the
+    // fallback below needs (`capability "fetch" not granted`). That is why the
+    // dependency floor is ^0.19.4: 0.19.2/0.19.3 omit `fetch` here, and this
+    // call site cannot tell.
     ...createBootstrapOpts({
       domains: 'resy.com',
       bootstrap: { captureHeaders: [{ ...CAPTURE_DECL }] },
     }),
-    // `createBootstrapOpts` derives `capabilities` from the DECLARATIONS
-    // alone, and 'fetch' is not one of them — so taking its output verbatim
-    // declares `capture_request_header` and silently drops the fetch verb the
-    // fallback below needs. Observed live as:
-    //   capability "fetch" not granted (declared: [capture_request_header])
-    // Restore it explicitly. (@chrischall/mcp-utils 0.19.3.)
-    capabilities: ['fetch', 'capture_request_header'],
     port: getWsPort(),
     serverName: PACKAGE_NAME,
     version: PACKAGE_VERSION,
