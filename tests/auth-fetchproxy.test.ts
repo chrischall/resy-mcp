@@ -111,4 +111,50 @@ describe('mintTokenViaFetchproxy', () => {
     // Token should still come back successfully
     await expect(mintTokenViaFetchproxy()).resolves.toBe('tk');
   });
+  /**
+   * The bridge port the host hands the child.
+   *
+   * mcp-host's `bridgePortEnv` names an environment variable and expects the
+   * server to bind the port it finds there — that is the whole mechanism by
+   * which a hosted, bridged registration is reachable. Until this existed,
+   * resy-mcp took no port at all, so `createFetchproxyTransport` used the
+   * library default and a `bridgePortEnv` on the registration would have named
+   * a variable nothing read: the host would believe it had placed the bridge
+   * and the child would be listening somewhere else.
+   */
+  describe('the bridge port', () => {
+    it('defaults to the shared fleet concentrator port', async () => {
+      delete process.env.RESY_WS_PORT;
+      mockPostJson.mockResolvedValue({ token: 'tok' });
+      await mintTokenViaFetchproxy();
+      const opts = mockConstructor.mock.calls[0][0] as { port?: number };
+      // ONE port for the whole fleet — the Transporter extension dials it and
+      // servers peer-elect on it. A "unique" per-MCP default would be a bug.
+      expect(opts.port).toBe(37_149);
+    });
+
+    it('binds RESY_WS_PORT when the host sets one', async () => {
+      process.env.RESY_WS_PORT = '41999';
+      mockPostJson.mockResolvedValue({ token: 'tok' });
+      await mintTokenViaFetchproxy();
+      const opts = mockConstructor.mock.calls[0][0] as { port?: number };
+      expect(opts.port).toBe(41_999);
+    });
+
+    it('falls back to the default for junk or an unexpanded placeholder', async () => {
+      // `${RESY_WS_PORT}` reaching the child unsubstituted is the exact shape
+      // that used to hand `NaN` to the server across the fleet.
+      for (const junk of ['${RESY_WS_PORT}', 'not-a-port', '0', '70000', '']) {
+        vi.resetModules();
+        mockConstructor.mockReset();
+        mockPostJson.mockReset().mockResolvedValue({ token: 'tok' });
+        process.env.RESY_WS_PORT = junk;
+        const mod = await import('../src/auth-fetchproxy.js');
+        await mod.mintTokenViaFetchproxy();
+        const opts = mockConstructor.mock.calls[0][0] as { port?: number };
+        expect(opts.port, `for ${JSON.stringify(junk)}`).toBe(37_149);
+      }
+      delete process.env.RESY_WS_PORT;
+    });
+  });
 });

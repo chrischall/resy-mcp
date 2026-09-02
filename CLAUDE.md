@@ -87,6 +87,12 @@ RESY_DISABLE_FETCHPROXY=1     # Opt out of the fetchproxy fallback (Path 3).
 RESY_TOKEN_CACHE=false        # Opt out of the on-disk token cache (default on).
 RESY_TOKEN_FILE=<path>        # Override the cache path. Defaults to
                               #   $MCP_DATA_DIR/.resy-mcp/token.json.
+RESY_WS_PORT=<port>           # fetchproxy bridge port. Defaults to 37149, the
+                              #   port the WHOLE fleet shares (the Transporter
+                              #   extension dials it). Override for local dev,
+                              #   test isolation, or a hosted bridged
+                              #   registration — this is the variable mcp-host
+                              #   names in `bridgePortEnv`.
 RESY_API_KEY=<key>            # Optional. Defaults to the public web-app key
                               #   baked into resy.com's JS. Only override if
                               #   Resy rotates it.
