@@ -50,6 +50,13 @@ env:
     help: >-
       Absolute path for the token cache file. Defaults to
       $MCP_DATA_DIR/.resy-mcp/token.json.
+  - name: RESY_CAPTURE_TIMEOUT
+    required: false
+    help: >-
+      Seconds to wait for the signed-in page to make an API call the bridge can
+      read the auth token from. Defaults to 30. Capture resolves on the NEXT
+      matching request, so a busy tab needs less and an idle one needs more; a
+      hosted child, which cannot ask anyone to reload a tab, wants more.
   - name: RESY_WS_PORT
     required: false
     help: >-

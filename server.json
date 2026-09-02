@@ -61,6 +61,12 @@
           "format": "string"
         },
         {
+          "name": "RESY_CAPTURE_TIMEOUT",
+          "description": "Seconds to wait for the signed-in page to make an API call the bridge can read the auth token from. Defaults to 30. Capture resolves on the next matching request, so an idle tab needs a longer window than a busy one.",
+          "isRequired": false,
+          "format": "number"
+        },
+        {
           "name": "RESY_WS_PORT",
           "description": "Port for the fetchproxy bridge. The whole fleet shares 37149 (the Transporter extension dials it), so override only for local development, test isolation, or a hosted bridged registration — this is the variable to name in the registration's bridgePortEnv.",
           "isRequired": false,

@@ -256,6 +256,70 @@ describe('mintTokenViaFetchproxy', () => {
   });
 
   /**
+   * How long the bridge waits for the page to make a request — and the
+   * invariant that keeps that number meaningful.
+   *
+   * Capture resolves on the NEXT matching request, so the window is the whole
+   * feature: at 15s a cold start against an idle tab captured nothing and fell
+   * through to the CORS-blocked fallback. Measured live, a reload inside a
+   * generous window captures a real token first try.
+   *
+   * The invariant is the important half. `captureRequestHeader`'s `timeoutMs`
+   * is silently capped by the transport's `fetchTimeoutMs` (default 30s), and
+   * the resulting error names the DEADLINE's number, not the one you passed
+   * (fetchproxy#277) — so a capture window raised past the deadline fails at
+   * the deadline while claiming to be something else. Setting the deadline
+   * from the window keeps them from ever disagreeing.
+   */
+  describe('the capture window', () => {
+    async function optsFor(env: Record<string, string | undefined> = {}) {
+      vi.resetModules();
+      mockConstructor.mockReset();
+      mockCapture.mockReset().mockResolvedValue('captured-tk-aaaaaaaaaaaaaaaaaaaaaa');
+      mockPostJson.mockReset();
+      for (const [k, v] of Object.entries(env)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+      const mod = await import('../src/auth-fetchproxy.js');
+      await mod.mintTokenViaFetchproxy();
+      return {
+        transport: mockConstructor.mock.calls[0][0] as { fetchTimeoutMs?: number },
+        capture: mockCapture.mock.calls[0][0] as { timeoutMs?: number },
+      };
+    }
+
+    afterEach(() => {
+      delete process.env.RESY_CAPTURE_TIMEOUT;
+    });
+
+    it('waits 30s by default — long enough for a page load to be observed', async () => {
+      const { capture } = await optsFor({ RESY_CAPTURE_TIMEOUT: undefined });
+      expect(capture.timeoutMs).toBe(30_000);
+    });
+
+    it('sets the transport deadline ABOVE the window, so it can never cap it', async () => {
+      const { transport, capture } = await optsFor({ RESY_CAPTURE_TIMEOUT: undefined });
+      expect(transport.fetchTimeoutMs).toBeGreaterThan(capture.timeoutMs!);
+    });
+
+    it('honours RESY_CAPTURE_TIMEOUT, in seconds, and moves the deadline with it', async () => {
+      const { transport, capture } = await optsFor({ RESY_CAPTURE_TIMEOUT: '90' });
+      expect(capture.timeoutMs).toBe(90_000);
+      // The invariant has to survive the override — this is the case that
+      // would otherwise silently fail at 30s citing a number nobody set.
+      expect(transport.fetchTimeoutMs).toBeGreaterThan(90_000);
+    });
+
+    it('falls back to the default for junk or an unexpanded placeholder', async () => {
+      for (const junk of ['${RESY_CAPTURE_TIMEOUT}', 'soon', '-5', '']) {
+        const { capture } = await optsFor({ RESY_CAPTURE_TIMEOUT: junk });
+        expect(capture.timeoutMs, `for ${JSON.stringify(junk)}`).toBe(30_000);
+      }
+    });
+  });
+
+  /**
    * The bridge port the host hands the child.
    *
    * mcp-host's `bridgePortEnv` names an environment variable and expects the
