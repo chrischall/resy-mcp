@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.1](https://github.com/chrischall/resy-mcp/compare/v0.13.0...v0.13.1) (2026-09-04)
+
+
+### Documentation
+
+* **skill:** document the `view` response-shape parameter ([#185](https://github.com/chrischall/resy-mcp/issues/185)) ([964efbd](https://github.com/chrischall/resy-mcp/commit/964efbdcd3f4e9bdd06ad5903546618f781769fe))
+
 ## [0.13.0](https://github.com/chrischall/resy-mcp/compare/v0.12.0...v0.13.0) (2026-09-04)
 
 
