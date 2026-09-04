@@ -70,13 +70,13 @@ Or place `.env` in the project directory with `RESY_EMAIL=` and `RESY_PASSWORD=`
 ### User
 | Tool | Description |
 |------|-------------|
-| `resy_get_profile` | Current user profile — name, email, phone, booking count, member-since. Payment method IDs are stripped. |
-| `resy_list_payment_methods` | List saved payment methods (`id`, `brand`, `last_four`, `exp_month`, `exp_year`, `is_default`). The `id` feeds `resy_book`'s `payment_method_id`. |
+| `resy_get_profile(view?)` | Current user profile — name, email, phone, booking count, member-since. Payment method IDs are stripped. |
+| `resy_list_payment_methods(view?)` | List saved payment methods (`id`, `brand`, `last_four`, `exp_month`, `exp_year`, `is_default`). The `id` feeds `resy_book`'s `payment_method_id`. |
 
 ### Venues
 | Tool | Description |
 |------|-------------|
-| `resy_search_venues(date, party_size, query?, lat?, lng?, limit?, radius_meters?)` | Search venues with availability for a date + party size. Defaults to NYC geo. |
+| `resy_search_venues(date, party_size, query?, lat?, lng?, limit?, radius_meters?, view?)` | Search venues with availability for a date + party size. Defaults to NYC geo. |
 | `resy_find_slots(venue_id, date, party_size, lat?, lng?)` | List bookable slots at a venue — each includes a short-lived `config_token`. |
 | `resy_get_venue(venue_id)` | Full venue details. |
 
@@ -90,16 +90,60 @@ Or place `.env` in the project directory with `RESY_EMAIL=` and `RESY_PASSWORD=`
 ### Favorites
 | Tool | Description |
 |------|-------------|
-| `resy_list_favorites` | List favorited venues ("hit list"). |
+| `resy_list_favorites(view?)` | List favorited venues ("hit list"). |
 | `resy_add_favorite(venue_id)` | Add a venue to favorites. |
 | `resy_remove_favorite(venue_id)` | Remove from favorites. |
 
 ### Priority Notify
 | Tool | Description |
 |------|-------------|
-| `resy_list_notify` | List Priority Notify subscriptions. |
+| `resy_list_notify(view?)` | List Priority Notify subscriptions. |
 | `resy_add_notify(venue_id, date, party_size, time_start?, time_end?)` | Subscribe to notifications when slots open. `time_start` / `time_end` are HH:MM (24h); default window 18:00–21:00. |
 | `resy_remove_notify(notify_id)` | Cancel a Priority Notify subscription. |
+
+## Response shape (`view`)
+
+Five read tools take `view: "compact" | "full"` — `resy_get_profile`,
+`resy_list_payment_methods`, `resy_list_favorites`, `resy_list_notify` and
+`resy_search_venues` — and **`compact` is the default**. The slim rung arrives
+without being asked for, because an efficiency a caller has to know about and
+request is one that usually is not requested.
+
+**Compact strips image and avatar URLs here, and nothing else.** There is no
+field projection: this server holds no captured fixture or documented field
+list for Resy's payloads, and an invented one would return a record with holes
+in it that still reads like a verified answer. Media stripping is subtractive,
+so it cannot lose a field nobody knew about.
+
+**The surprise worth stating plainly: on four of those five tools, compact and
+full are byte-identical today.** `resy_get_profile` is the ONE response in this
+whole server that carries a media URL — `profile_image_url` off `/2/user` — so
+it is the one place compact removes anything at all. The other four already
+hand back records this server assembled field by field, with no picture in
+them. The parameter is on them so that a field arriving later with an avatar
+inside it is stripped by default rather than after somebody notices.
+
+`profile_image_url` is named in the drop list rather than left to the built-in
+rules, and that is what makes its removal deterministic. The key pattern
+anchors its noun at the START of a key (it knows `profile_pic`, not
+`profile_image_url`), which leaves only the value rule — and that fires just
+when a URL path ends in an image extension, which Resy's avatar pipeline need
+not do.
+
+`view: "full"` returns the record untouched. There is **no `raw` rung**: `full`
+already IS the un-stripped response, so a third value could only alias it.
+
+The other ten tools take no `view`:
+
+- **`resy_find_slots`, `resy_get_venue` and `resy_list_reservations`** build
+  their answers field by field (`formatSlot`, `formatVenue`,
+  `formatReservation`). No upstream payload survives into the response, and no
+  media URL with it — there is nothing for the rung to remove.
+- **`resy_book`, `resy_cancel`, `resy_add_favorite`, `resy_remove_favorite`,
+  `resy_add_notify`, `resy_remove_notify`** are writes. A write's response is a
+  receipt — a `resy_token`, a confirmation, a status — with nothing to strip and
+  everything to keep.
+- **`resy_healthcheck`** answers reachability and auth.
 
 ## Workflows
 
