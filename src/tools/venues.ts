@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { extractTime } from '@chrischall/mcp-utils';
+import { viewArg, viewResponse } from '../view.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResyClient } from '../client.js';
-import { textResult } from '../mcp.js';
+import { minifiedResult } from '../mcp.js';
 
 export const DEFAULT_LAT = 40.7128;
 export const DEFAULT_LNG = -73.9876;
@@ -132,6 +133,7 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
         'Search Resy for restaurants with availability. Returns venues including any bookable slot tokens for the requested date + party size. Defaults to NYC geo if lat/lng omitted.',
       annotations: { readOnlyHint: true },
       inputSchema: {
+        view: viewArg(),
         query: z.string().optional().describe('Venue name or keyword'),
         lat: z.number().optional().describe('Latitude (default 40.7128 NYC)'),
         lng: z.number().optional().describe('Longitude (default -73.9876 NYC)'),
@@ -141,7 +143,7 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
         radius_meters: z.number().int().positive().optional().describe('Search radius in meters (default 16100)'),
       },
     },
-    async ({ query, lat, lng, date, party_size, limit, radius_meters }) => {
+    async ({ query, lat, lng, date, party_size, limit, radius_meters, view }) => {
       const struct = {
         availability: true,
         page: 1,
@@ -166,7 +168,7 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
       const formatted = hits
         .filter((h) => h.id?.resy)
         .map((h) => formatVenue(h, date, party_size));
-      return textResult(formatted);
+      return viewResponse(view, formatted);
     }
   );
 
@@ -184,7 +186,7 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
         lng: z.number().optional(),
       },
     },
-    async (args) => textResult(await findSlotsAtVenue(client, args))
+    async (args) => minifiedResult(await findSlotsAtVenue(client, args))
   );
 
   server.registerTool(
@@ -201,7 +203,7 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
         'GET',
         `/3/venue?id=${venue_id}`
       );
-      return textResult(data.venue ? formatVenue(data.venue) : null);
+      return minifiedResult(data.venue ? formatVenue(data.venue) : null);
     }
   );
 }

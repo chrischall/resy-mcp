@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { extractTime } from '@chrischall/mcp-utils';
+import { viewArg, viewResponse } from '../view.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResyClient } from '../client.js';
-import { textResult } from '../mcp.js';
+import { minifiedResult } from '../mcp.js';
 
 interface RawNotifyEntry {
   specs?: {
@@ -42,9 +43,12 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
     {
       description:
         'List Priority Notify subscriptions — tables you are waiting for when reservations open up.',
+      inputSchema: {
+        view: viewArg(),
+      },
       annotations: { readOnlyHint: true },
     },
-    async () => {
+    async ({ view }) => {
       const data = await client.request<NotifyResponse>('GET', '/3/notify');
       const entries = (data.notify ?? [])
         .map((e) => e.specs)
@@ -58,7 +62,7 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
           time_end: trimSeconds(s.time_preferred_end),
           service_type_id: s.service_type_id,
         }));
-      return textResult(entries);
+      return viewResponse(view, entries);
     }
   );
 
@@ -99,7 +103,7 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
         service_type_id: String(service_type_id ?? 2),
       });
       const data = await client.request<Record<string, unknown>>('POST', '/2/notify', body);
-      return textResult(data);
+      return minifiedResult(data);
     }
   );
 
@@ -130,7 +134,7 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
         service_type_id: String(entry.service_type_id ?? 2),
       });
       await client.request<unknown>('DELETE', `/2/notify?${params.toString()}`);
-      return textResult({ removed: true, notify_id });
+      return minifiedResult({ removed: true, notify_id });
     }
   );
 }

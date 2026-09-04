@@ -75,8 +75,8 @@ describe('favorite tools', () => {
     expect(bb.get('venue_id')).toBe('101');
     expect(bb.get('favorite')).toBe('1');
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain('"favorited": true');
-    expect(text).toContain('"venue_id": 101');
+    expect(text).toContain('"favorited":true');
+    expect(text).toContain('"venue_id":101');
   });
 
   it('resy_remove_favorite POSTs /3/user/favorites with venue_id + favorite=0', async () => {
@@ -90,6 +90,22 @@ describe('favorite tools', () => {
     expect(bb.get('venue_id')).toBe('101');
     expect(bb.get('favorite')).toBe('0');
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain('"removed": true');
+    expect(text).toContain('"removed":true');
+  });
+  // `view` on a list of favourites: the projection here has no media field at
+  // all, so compact and full must agree byte for byte. Pinned because a `view`
+  // that quietly changed a venue list would be worse than one that did
+  // nothing — and because `view` must never reach Resy.
+  it('resy_list_favorites answers identically on compact and full, and never forwards `view`', async () => {
+    const raw = { results: { venues: [{ venue: { id: { resy: 9575 }, name: "Hank's Seafood" } }] } };
+    mockRequest.mockResolvedValue(raw);
+    const compact = (await harness.callTool('resy_list_favorites')).content[0] as { text: string };
+    mockRequest.mockResolvedValue(raw);
+    const full = (await harness.callTool('resy_list_favorites', { view: 'full' })).content[0] as { text: string };
+    expect(compact.text).toBe(full.text);
+    // Single line on both rungs — no pretty-printing.
+    expect(compact.text.includes('\n')).toBe(false);
+    expect(mockRequest).toHaveBeenCalledWith('GET', '/3/user/favorites');
+    expect(mockRequest.mock.calls.every((c) => c.length === 2)).toBe(true);
   });
 });
