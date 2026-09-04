@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { extractTime, schemaConfirm, toolAnnotations } from '@chrischall/mcp-utils';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResyClient } from '../client.js';
-import { textResult } from '../mcp.js';
+import { minifiedResult } from '../mcp.js';
 import { findSlotsAtVenue, type FormattedSlot } from './venues.js';
 
 /**
@@ -261,7 +261,7 @@ export function registerReservationTools(
         // YYYY-MM-DD strings compare lexicographically = chronologically
         return scopeResolved === 'upcoming' ? day >= today : day < today;
       });
-      return textResult(filtered.map((r) => formatReservation(r, venues)));
+      return minifiedResult(filtered.map((r) => formatReservation(r, venues)));
     }
   );
 
@@ -285,7 +285,7 @@ export function registerReservationTools(
       // NO cancel call. Only confirm:true reaches POST /3/cancel.
       if (confirm !== true) {
         const info = await findReservationByToken(client, resy_token);
-        return textResult({
+        return minifiedResult({
           preview: true,
           action: 'cancel',
           cancelled: false,
@@ -329,7 +329,7 @@ export function registerReservationTools(
         (status !== undefined && /fail|error|denied/.test(status)) ||
         hasErrorField;
       const cancelled = explicitSuccess || !explicitFailure;
-      return textResult({ cancelled, raw: data });
+      return minifiedResult({ cancelled, raw: data });
     }
   );
 
@@ -395,7 +395,7 @@ export function registerReservationTools(
       if (!selection.chosen) {
         // Exact desired_time requested, not available, closest not allowed.
         // Book nothing; hand back the options so the caller makes the choice.
-        return textResult({
+        return minifiedResult({
           preview: true,
           action: 'book',
           booked: false,
@@ -431,7 +431,7 @@ export function registerReservationTools(
       //    confirm:true. The preview surfaces the EXACT slot time so a confirm
       //    is an informed one.
       if (confirm !== true) {
-        return textResult({
+        return minifiedResult({
           preview: true,
           action: 'book',
           booked: false,
@@ -466,7 +466,7 @@ export function registerReservationTools(
         num_seats?: number;
       }>('POST', '/3/book', bookBody);
 
-      return textResult({
+      return minifiedResult({
         resy_token: booked.resy_token,
         reservation_id: booked.reservation_id,
         venue_name: details.venue_name,

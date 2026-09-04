@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResyClient } from '../client.js';
-import { textResult } from '../mcp.js';
+import { minifiedResult } from '../mcp.js';
+import { viewArg, viewResponse } from '../view.js';
 
 interface RawPaymentMethod {
   id?: number;
@@ -31,7 +32,7 @@ export function registerUserTools(server: McpServer, client: ResyClient): void {
     annotations: { readOnlyHint: true },
   }, async () => {
     const data = await client.request<ResyUser>('GET', '/2/user');
-    return textResult({
+    return minifiedResult({
       first_name: data.first_name,
       last_name: data.last_name,
       email: data.em_address,
@@ -45,8 +46,11 @@ export function registerUserTools(server: McpServer, client: ResyClient): void {
 
   server.registerTool('resy_list_payment_methods', {
     description: "List the user's saved payment methods on Resy. Returns id, brand, last four digits, expiry, and is_default. The id can be passed as payment_method_id to resy_book.",
+    inputSchema: {
+      view: viewArg(),
+    },
     annotations: { readOnlyHint: true },
-  }, async () => {
+  }, async ({ view }) => {
     const data = await client.request<ResyUser>('GET', '/2/user');
     const methods = (data.payment_methods ?? []).map((m) => ({
       id: m.id,
@@ -56,6 +60,6 @@ export function registerUserTools(server: McpServer, client: ResyClient): void {
       exp_year: m.exp_year,
       is_default: m.is_default ?? false,
     }));
-    return textResult(methods);
+    return viewResponse(view, methods);
   });
 }

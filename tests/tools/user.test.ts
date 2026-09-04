@@ -35,9 +35,9 @@ describe('user tools', () => {
       expect(mockRequest).toHaveBeenCalledWith('GET', '/2/user');
       expect(result.isError).toBeFalsy();
       const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('"first_name": "Chris"');
-      expect(text).toContain('"email": "chris@example.com"');
-      expect(text).toContain('"phone": "+15551234567"');
+      expect(text).toContain('"first_name":"Chris"');
+      expect(text).toContain('"email":"chris@example.com"');
+      expect(text).toContain('"phone":"+15551234567"');
       expect(text).not.toContain('payment_methods');
     });
   });

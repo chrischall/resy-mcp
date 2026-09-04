@@ -198,22 +198,22 @@ describe('reservation tools (list/cancel)', () => {
 
       expect(result.isError).toBeFalsy();
       const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('"cancelled": true');
+      expect(text).toContain('"cancelled":true');
     });
 
     it('reports cancelled=false when Resy returns an explicit failure body', async () => {
       mockRequest.mockResolvedValue({ ok: false, error: 'past deadline' });
       const result = await harness.callTool('resy_cancel', { resy_token: 'rr://late', confirm: true });
       const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('"cancelled": false');
-      expect(text).toContain('"error": "past deadline"');
+      expect(text).toContain('"cancelled":false');
+      expect(text).toContain('"error":"past deadline"');
     });
 
     it('reports cancelled=false on a fail-shaped status string', async () => {
       mockRequest.mockResolvedValue({ status: 'failed' });
       const result = await harness.callTool('resy_cancel', { resy_token: 'rr://x', confirm: true });
       const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('"cancelled": false');
+      expect(text).toContain('"cancelled":false');
     });
 
     // ─── confirm gate ─────────────────────────────────────────────────
@@ -346,8 +346,8 @@ describe('reservation tools (list/cancel)', () => {
       expect(bb.get('source_id')).toBe('resy.com-venue-details');
 
       const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('"resy_token": "rr://new"');
-      expect(text).toContain('"venue_url": "https://resy.com/cities/new-york-ny/carbone"');
+      expect(text).toContain('"resy_token":"rr://new"');
+      expect(text).toContain('"venue_url":"https://resy.com/cities/new-york-ny/carbone"');
     });
 
     it('rejects malformed desired_time with a clear validation error', async () => {

@@ -77,12 +77,12 @@ describe('venue tools', () => {
 
       expect(result.isError).toBeFalsy();
       const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('"name": "Carbone"');
-      expect(text).toContain('"venue_id": 101');
+      expect(text).toContain('"name":"Carbone"');
+      expect(text).toContain('"venue_id":101');
       // City slug is derived from locality+region ("new-york-ny"),
       // matching Resy's canonical URL convention.
-      expect(text).toContain('"url": "https://resy.com/cities/new-york-ny/carbone-new-york"');
-      expect(text).toContain('"time": "19:00"');
+      expect(text).toContain('"url":"https://resy.com/cities/new-york-ny/carbone-new-york"');
+      expect(text).toContain('"time":"19:00"');
     });
 
     it('respects explicit lat/lng/limit', async () => {
@@ -127,9 +127,9 @@ describe('venue tools', () => {
 
       expect(result.isError).toBeFalsy();
       const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('"config_token": "cfg-a"');
-      expect(text).toContain('"time": "19:00"');
-      expect(text).toContain('"time": "20:30"');
+      expect(text).toContain('"config_token":"cfg-a"');
+      expect(text).toContain('"time":"19:00"');
+      expect(text).toContain('"time":"20:30"');
     });
 
     it('returns empty array when venue has no slots', async () => {
@@ -158,7 +158,7 @@ describe('venue tools', () => {
       expect(mockRequest).toHaveBeenCalledWith('GET', '/3/venue?id=101');
       expect(result.isError).toBeFalsy();
       const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('"name": "Carbone"');
+      expect(text).toContain('"name":"Carbone"');
     });
   });
 });

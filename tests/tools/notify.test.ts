@@ -80,7 +80,7 @@ describe('notify tools', () => {
     expect(bb.get('time_preferred_end')).toBe('21:00:00');
     expect(bb.get('service_type_id')).toBe('2');
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain('"notify_id": 7');
+    expect(text).toContain('"notify_id":7');
   });
 
   it('resy_add_notify defaults time window to 18:00–21:00 and service_type_id to 2', async () => {
@@ -134,8 +134,8 @@ describe('notify tools', () => {
     expect(path).toContain('service_type_id=2');
 
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain('"removed": true');
-    expect(text).toContain('"notify_id": 127233046');
+    expect(text).toContain('"removed":true');
+    expect(text).toContain('"notify_id":127233046');
   });
 
   it('resy_remove_notify throws when notify_id is not in the user\'s list', async () => {

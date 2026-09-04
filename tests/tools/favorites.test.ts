@@ -75,8 +75,8 @@ describe('favorite tools', () => {
     expect(bb.get('venue_id')).toBe('101');
     expect(bb.get('favorite')).toBe('1');
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain('"favorited": true');
-    expect(text).toContain('"venue_id": 101');
+    expect(text).toContain('"favorited":true');
+    expect(text).toContain('"venue_id":101');
   });
 
   it('resy_remove_favorite POSTs /3/user/favorites with venue_id + favorite=0', async () => {
@@ -90,6 +90,6 @@ describe('favorite tools', () => {
     expect(bb.get('venue_id')).toBe('101');
     expect(bb.get('favorite')).toBe('0');
     const text = (result.content[0] as { text: string }).text;
-    expect(text).toContain('"removed": true');
+    expect(text).toContain('"removed":true');
   });
 });
