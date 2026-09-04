@@ -97,6 +97,34 @@ describe('venue tools', () => {
       expect(struct.geo.longitude).toBeCloseTo(-118.2437);
       expect(struct.per_page).toBe(5);
     });
+
+    // `view` is a RESPONSE-shape argument; Resy has never heard of it. This
+    // handler builds a `struct_data` blob out of its own named arguments, and
+    // two sibling repos shipped one that forwarded its whole args object into
+    // a query string and sent `view=compact` to the live API. `formatVenue`
+    // has no media field either, so compact and full must agree byte for byte.
+    it('answers identically on compact and full, and never puts `view` in struct_data', async () => {
+      const raw = {
+        search: { hits: [{ id: { resy: 101 }, name: 'Carbone', url_slug: 'carbone-new-york' }] },
+      };
+      mockRequest.mockResolvedValue(raw);
+      const compact = (
+        await harness.callTool('resy_search_venues', { date: '2026-05-01', party_size: 2 })
+      ).content[0] as { text: string };
+      mockRequest.mockResolvedValue(raw);
+      const full = (
+        await harness.callTool('resy_search_venues', {
+          date: '2026-05-01',
+          party_size: 2,
+          view: 'full',
+        })
+      ).content[0] as { text: string };
+      expect(compact.text).toBe(full.text);
+      expect(compact.text.includes('\n')).toBe(false);
+      for (const [, , body] of mockRequest.mock.calls) {
+        expect((body as URLSearchParams).get('struct_data')).not.toContain('view');
+      }
+    });
   });
 
   describe('resy_find_slots', () => {

@@ -145,4 +145,18 @@ describe('notify tools', () => {
     const text = (result.content[0] as { text: string }).text;
     expect(text).toMatch(/no priority notify subscription found/i);
   });
+  // Same reasoning as resy_list_favorites: a notify subscription carries no
+  // media, so compact and full must be byte-identical, and `view` must not
+  // reach Resy.
+  it('resy_list_notify answers identically on compact and full, and never forwards `view`', async () => {
+    const raw = { notify: [{ specs: { notify_request_id: 1, venue_id: 2747, day: '2026-04-24', party_size: 2 } }] };
+    mockRequest.mockResolvedValue(raw);
+    const compact = (await harness.callTool('resy_list_notify')).content[0] as { text: string };
+    mockRequest.mockResolvedValue(raw);
+    const full = (await harness.callTool('resy_list_notify', { view: 'full' })).content[0] as { text: string };
+    expect(compact.text).toBe(full.text);
+    expect(compact.text.includes('\n')).toBe(false);
+    expect(mockRequest).toHaveBeenCalledWith('GET', '/3/notify');
+    expect(mockRequest.mock.calls.every((c) => c.length === 2)).toBe(true);
+  });
 });

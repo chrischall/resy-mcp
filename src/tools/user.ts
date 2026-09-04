@@ -1,6 +1,5 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ResyClient } from '../client.js';
-import { minifiedResult } from '../mcp.js';
 import { viewArg, viewResponse } from '../view.js';
 
 interface RawPaymentMethod {
@@ -29,10 +28,16 @@ interface ResyUser {
 export function registerUserTools(server: McpServer, client: ResyClient): void {
   server.registerTool('resy_get_profile', {
     description: "Get the authenticated Resy user's profile (name, email, phone, booking count, member-since date). Payment method IDs are not exposed.",
+    inputSchema: {
+      view: viewArg(),
+    },
     annotations: { readOnlyHint: true },
-  }, async () => {
+  }, async ({ view }) => {
+    // This is the ONE response in this server that carries a media URL, so it
+    // is the one place compact strips anything real. Shipping it without the
+    // `view` wiring made the whole feature a no-op across the server.
     const data = await client.request<ResyUser>('GET', '/2/user');
-    return minifiedResult({
+    return viewResponse(view, {
       first_name: data.first_name,
       last_name: data.last_name,
       email: data.em_address,

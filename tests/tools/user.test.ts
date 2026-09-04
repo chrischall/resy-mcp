@@ -40,6 +40,53 @@ describe('user tools', () => {
       expect(text).toContain('"phone":"+15551234567"');
       expect(text).not.toContain('payment_methods');
     });
+
+    // `profile_image_url` is the ONE media URL any read tool in this server
+    // returns, so this tool is the only place compact strips anything real.
+    // It shipped without the `view` wiring once, which made the whole feature
+    // a no-op across the server — hence a test at the TOOL boundary and not
+    // just on the helper.
+    const withAvatar = {
+      first_name: 'Chris',
+      em_address: 'chris@example.com',
+      date_created: '2020-01-15',
+      profile_image_url: 'https://images.resy.com/avatars/1234',
+    };
+
+    it('strips profile_image_url by DEFAULT — compact is what a caller gets unasked', async () => {
+      mockRequest.mockResolvedValue(withAvatar);
+      const result = await harness.callTool('resy_get_profile');
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed.profile_image_url).toBeUndefined();
+      // Subtractive, so everything that is not a picture is still here.
+      expect(parsed.first_name).toBe('Chris');
+      expect(parsed.member_since).toBe('2020-01-15');
+    });
+
+    it('returns profile_image_url on view: "full"', async () => {
+      mockRequest.mockResolvedValue(withAvatar);
+      const result = await harness.callTool('resy_get_profile', { view: 'full' });
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed.profile_image_url).toBe('https://images.resy.com/avatars/1234');
+    });
+
+    it('emits a single line — no pretty-printing on either rung', async () => {
+      for (const args of [undefined, { view: 'full' }]) {
+        mockRequest.mockResolvedValue(withAvatar);
+        const result = await harness.callTool('resy_get_profile', args);
+        expect((result.content[0] as { text: string }).text.includes('\n')).toBe(false);
+      }
+    });
+
+    // `view` is a RESPONSE-shape argument; Resy has never heard of it. Two
+    // sibling repos shipped a handler that forwarded its whole args object
+    // into a query string and sent `view=compact` to the live API.
+    it('never forwards `view` upstream', async () => {
+      mockRequest.mockResolvedValue(withAvatar);
+      await harness.callTool('resy_get_profile', { view: 'full' });
+      expect(mockRequest).toHaveBeenCalledWith('GET', '/2/user');
+      expect(mockRequest.mock.calls[0]).toHaveLength(2);
+    });
   });
 
   describe('resy_list_payment_methods', () => {
@@ -76,6 +123,21 @@ describe('user tools', () => {
       const result = await harness.callTool('resy_list_payment_methods');
       const text = (result.content[0] as { text: string }).text;
       expect(JSON.parse(text)).toEqual([]);
+    });
+
+    // A card is not a picture: this projection has no media field at all, so
+    // compact and full must agree byte for byte. Pinned because a `view` that
+    // quietly changed a payment method would be far worse than one that did
+    // nothing — and because `view` must not reach Resy either way.
+    it('answers identically on compact and full, and never forwards `view`', async () => {
+      const raw = { payment_methods: [{ id: 55, brand: 'visa', last_four: '4242' }] };
+      mockRequest.mockResolvedValue(raw);
+      const compact = (await harness.callTool('resy_list_payment_methods')).content[0] as { text: string };
+      mockRequest.mockResolvedValue(raw);
+      const full = (await harness.callTool('resy_list_payment_methods', { view: 'full' })).content[0] as { text: string };
+      expect(compact.text).toBe(full.text);
+      expect(mockRequest).toHaveBeenCalledWith('GET', '/2/user');
+      expect(mockRequest.mock.calls.every((c) => c.length === 2)).toBe(true);
     });
   });
 });
