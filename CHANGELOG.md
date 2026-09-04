@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.13.0](https://github.com/chrischall/resy-mcp/compare/v0.12.0...v0.13.0) (2026-09-04)
+
+
+### Features
+
+* **tools:** compact by default — strip media URLs, and minify every response ([#181](https://github.com/chrischall/resy-mcp/issues/181)) ([6127bd1](https://github.com/chrischall/resy-mcp/commit/6127bd1f888ec2e74566a7ca876e0efda666c58d))
+
+
+### Bug Fixes
+
+* **deps:** pick up @chrischall/mcp-utils 0.23.2 ([#184](https://github.com/chrischall/resy-mcp/issues/184)) ([bb5a37f](https://github.com/chrischall/resy-mcp/commit/bb5a37f89138f3744ab100aa130fb3b97802fb9b))
+
 ## [0.12.0](https://github.com/chrischall/resy-mcp/compare/v0.11.0...v0.12.0) (2026-09-02)
 
 
