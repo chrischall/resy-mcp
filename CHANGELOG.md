@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.2](https://github.com/chrischall/resy-mcp/compare/v0.13.1...v0.13.2) (2026-09-08)
+
+
+### Bug Fixes
+
+* **deps:** take @fetchproxy/server 2.6.0 so a refused bridge hello says why ([#189](https://github.com/chrischall/resy-mcp/issues/189)) ([961603f](https://github.com/chrischall/resy-mcp/commit/961603f033c3e76e172f16e74a5a17ef41fa5867))
+
 ## [0.13.1](https://github.com/chrischall/resy-mcp/compare/v0.13.0...v0.13.1) (2026-09-04)
 
 
