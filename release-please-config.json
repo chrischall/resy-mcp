@@ -4,8 +4,6 @@
     ".": {
       "package-name": "resy-mcp",
       "release-type": "node",
-      "include-v-in-tag": true,
-      "include-component-in-tag": false,
       "changelog-sections": [
         {
           "type": "feat",
@@ -85,7 +83,9 @@
         },
         "src/index.ts",
         "src/auth-fetchproxy.ts"
-      ]
+      ],
+      "include-v-in-tag": true,
+      "include-component-in-tag": false
     }
   }
 }
