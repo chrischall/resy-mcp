@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.13.3](https://github.com/chrischall/resy-mcp/compare/v0.13.2...v0.13.3) (2026-09-09)
+
+
+### Bug Fixes
+
+* **deps:** bump hono from 4.13.0 to 4.13.7 ([#197](https://github.com/chrischall/resy-mcp/issues/197)) ([0333bbb](https://github.com/chrischall/resy-mcp/commit/0333bbb603c4b7223ed879114b81576b4a62dd7b))
+* **deps:** require @fetchproxy/server ^2.7.0, the first that reads FETCHPROXY_IDENTITY_DIR ([#195](https://github.com/chrischall/resy-mcp/issues/195)) ([529f93a](https://github.com/chrischall/resy-mcp/commit/529f93a871dae3073cbc2f89a8cf24194951a06a))
+
 ## [0.13.2](https://github.com/chrischall/resy-mcp/compare/v0.13.1...v0.13.2) (2026-09-08)
 
 
