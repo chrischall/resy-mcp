@@ -44,7 +44,7 @@
         },
         {
           "name": "RESY_API_KEY",
-          "description": "Override the public web-app API key (rarely needed)",
+          "description": "Pin the api key, beating both the key captured from the live site and the compiled-in default. Rotation does not require it: the key is captured and cached automatically.",
           "isRequired": false,
           "format": "string"
         },
@@ -57,6 +57,12 @@
         {
           "name": "RESY_TOKEN_FILE",
           "description": "Absolute path for the token cache file. Defaults to $MCP_DATA_DIR/.resy-mcp/token.json.",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "RESY_API_KEY_FILE",
+          "description": "Absolute path for the api-key cache file. Defaults to $MCP_DATA_DIR/.resy-mcp/api-key.json. Holds the bare key captured from the live site, which takes precedence over the compiled-in default.",
           "isRequired": false,
           "format": "string"
         },
