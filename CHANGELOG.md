@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.14.0](https://github.com/chrischall/resy-mcp/compare/v0.13.3...v0.14.0) (2026-09-10)
+
+
+### Features
+
+* **deps:** @chrischall/mcp-utils 0.26.0 ([#202](https://github.com/chrischall/resy-mcp/issues/202)) ([075db23](https://github.com/chrischall/resy-mcp/commit/075db23bae7a4d8ca000bfb78f621d9bf768b372))
+
+
+### Bug Fixes
+
+* **deps:** take @fetchproxy/server 2.9.1 so a pairing prompt survives ([#199](https://github.com/chrischall/resy-mcp/issues/199)) ([a91e0d0](https://github.com/chrischall/resy-mcp/commit/a91e0d0a1a915ffde0585579551514064af9b0ae))
+* **healthcheck:** say the token was rejected, not "unexpected failure" ([#203](https://github.com/chrischall/resy-mcp/issues/203)) ([c96de1d](https://github.com/chrischall/resy-mcp/commit/c96de1ddc1dbb9867ee1043718fc7e6607fb1069))
+
 ## [0.13.3](https://github.com/chrischall/resy-mcp/compare/v0.13.2...v0.13.3) (2026-09-09)
 
 
