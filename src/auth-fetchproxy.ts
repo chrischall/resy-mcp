@@ -163,6 +163,13 @@ const MIN_TOKEN_LENGTH = 20;
  */
 const BRIDGE_TAB_URL = 'https://resy.com/';
 
+/**
+ * The `x-origin` value api.resy.com requires, derived from the relay tab's URL
+ * so the two cannot drift: the header names the origin the request claims to
+ * come from, and that IS the tab performing it.
+ */
+const BRIDGE_ORIGIN = new URL(BRIDGE_TAB_URL).origin;
+
 interface RefreshResponse {
   token?: unknown;
 }
@@ -307,7 +314,20 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
         // The SAME key every other api.resy.com call already carries
         // (`api-key.ts`), so nothing has to be captured, cached or approved to
         // send it — it was in the repo the whole time.
-        headers: { authorization: apiKeyAuthorization() },
+        headers: {
+          authorization: apiKeyAuthorization(),
+          // MEASURED, not guessed: the identical in-page POST returns 200 with
+          // this header and `Failed to fetch` without it. api.resy.com answers
+          // an `x-origin`-less request with no `Access-Control-Allow-Origin`,
+          // so the browser discards it and JS sees a bare TypeError — the same
+          // invisible failure that made chrischall/fetchproxy#324 look like a
+          // bot wall for five rounds.
+          //
+          // The site sends it on every api.resy.com call; we did not, which is
+          // the last remaining difference between our request and one that
+          // works.
+          'x-origin': BRIDGE_ORIGIN,
+        },
       }
       );
     } catch (e) {
