@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.2](https://github.com/chrischall/resy-mcp/compare/v0.14.1...v0.14.2) (2026-09-10)
+
+
+### Bug Fixes
+
+* **auth:** send x-origin on /3/auth/refresh — the last missing header ([#212](https://github.com/chrischall/resy-mcp/issues/212)) ([778e61f](https://github.com/chrischall/resy-mcp/commit/778e61f14becabe925da93bd07d6342ab500e611))
+
 ## [0.14.1](https://github.com/chrischall/resy-mcp/compare/v0.14.0...v0.14.1) (2026-09-10)
 
 
