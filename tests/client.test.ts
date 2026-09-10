@@ -32,6 +32,84 @@ describe('ResyClient', () => {
     vi.useRealTimers();
   });
 
+  /**
+   * THE HEALTHCHECK'S LABEL MUST MATCH THE PATH ACTUALLY TAKEN (#166).
+   *
+   * `describeCredential` inspects the environment rather than minting, because
+   * minting is side-effecting — path 2 spends a real sign-in attempt and path 3
+   * opens the bridge — and a healthcheck must not spend either just to say what
+   * is configured. The cost of that choice is a SECOND implementation of
+   * `mintToken`'s ordering, and its comment promises they stay in step:
+   *
+   *   "Mirrors `mintToken`'s path order exactly; if that order changes, this
+   *    must move with it or the healthcheck will name the wrong path."
+   *
+   * Nothing enforced that. It matters for #166 specifically: the remaining work
+   * there is watching an unattended cold start pick the bridge, and the only
+   * thing that reports which path ran is this label. A drift makes the
+   * diagnostic confidently wrong — the worst kind for an issue whose whole
+   * remaining step is "look at what it says".
+   *
+   * So each case drives BOTH: the label, and a real request whose mocks reveal
+   * which path was actually taken.
+   */
+  describe('describeCredential names the path mintToken really takes', () => {
+    async function pathTaken(): Promise<'env token (RESY_AUTH_TOKEN)' | 'password login' | 'fetchproxy' | null> {
+      const login = vi.fn();
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => {
+        if (String(url).includes('/3/auth/password')) {
+          login();
+          return new Response(JSON.stringify({ token: 'pw-token' }), { status: 200 });
+        }
+        return new Response('{}', { status: 200 });
+      });
+      mintTokenViaFetchproxy.mockResolvedValue('bridge-token');
+      const client = new ResyClient();
+      try {
+        await client.request('GET', '/2/user');
+      } catch {
+        return null;
+      }
+      if (login.mock.calls.length > 0) return 'password login';
+      if (mintTokenViaFetchproxy.mock.calls.length > 0) return 'fetchproxy';
+      return 'env token (RESY_AUTH_TOKEN)';
+    }
+
+    it('token beats password beats bridge — the order the issue had to correct', async () => {
+      // All three configured: the token wins, which is why removing it is the
+      // LAST step of the switchover and not the first.
+      process.env.RESY_AUTH_TOKEN = 'tk';
+      expect(new ResyClient().describeCredential().source).toBe('env token (RESY_AUTH_TOKEN)');
+      expect(await pathTaken()).toBe('env token (RESY_AUTH_TOKEN)');
+    });
+
+    it('password sits BETWEEN the token and the bridge, which is the correction #166 records', async () => {
+      // Dropping only the token leaves the password path in front of the
+      // bridge — the thing that made "drop RESY_AUTH_TOKEN last" incomplete.
+      delete process.env.RESY_AUTH_TOKEN;
+      expect(new ResyClient().describeCredential().source).toBe('password login');
+      expect(await pathTaken()).toBe('password login');
+    });
+
+    it('the bridge runs only once both are gone', async () => {
+      delete process.env.RESY_AUTH_TOKEN;
+      delete process.env.RESY_EMAIL;
+      delete process.env.RESY_PASSWORD;
+      expect(new ResyClient().describeCredential().source).toBe('fetchproxy');
+      expect(await pathTaken()).toBe('fetchproxy');
+    });
+
+    it('reports nothing configured when the bridge is opted out of too', async () => {
+      delete process.env.RESY_AUTH_TOKEN;
+      delete process.env.RESY_EMAIL;
+      delete process.env.RESY_PASSWORD;
+      process.env.RESY_DISABLE_FETCHPROXY = '1';
+      expect(new ResyClient().describeCredential().source).toBeNull();
+      // And the mint agrees: no path at all, rather than a silent one.
+      expect(await pathTaken()).toBeNull();
+    });
+  });
+
   it('logs in on first request then uses the token', async () => {
     const mockFetch = vi.fn()
       // login response
