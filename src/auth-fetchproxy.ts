@@ -191,9 +191,12 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
     fetchTimeoutMs: BRIDGE_DEADLINE_MS,
     serverName: PACKAGE_NAME,
     version: PACKAGE_VERSION,
-    // keepAliveIntervalMs is no longer set here: @fetchproxy/server 0.10.0
-    // defaults it to 25_000 — the same cadence we relied on to keep the SW
-    // resident through the token-refresh window (fetchproxy#72).
+    // keepAliveIntervalMs is no longer set here: @fetchproxy/server defaults
+    // it, which is what keeps the SW resident through the token-refresh
+    // window (fetchproxy#72). The default is 20_000, not the 25_000 this
+    // comment claimed for four releases — worth stating accurately, because
+    // the margin it buys against MV3's ~30s eviction is the number, and
+    // reading 25_000 makes that margin look half what it is.
   });
 
   try {
