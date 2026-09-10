@@ -47,6 +47,8 @@ import { readPortEnv, readTtlMsEnv } from '@chrischall/mcp-utils';
 // Kept in sync with package.json by release-please via the
 // `x-release-please-version` marker on PACKAGE_VERSION below
 // (registered in release-please-config.json `extra-files`).
+import { readCachedApiKey, writeCachedApiKey } from './api-key-cache.js';
+
 const PACKAGE_NAME = 'resy-mcp';
 const PACKAGE_VERSION = '0.14.0'; // x-release-please-version
 
@@ -91,6 +93,28 @@ const CAPTURE_DECL = {
   host: 'api.resy.com',
   path: '/*',
   headerName: 'x-resy-auth-token',
+} as const;
+
+/**
+ * The web API key the site sends on every api.resy.com call.
+ *
+ * `/3/auth/refresh` is **419 Unauthorized** without it, and Resy's error path
+ * omits `Access-Control-Allow-Origin`, so the browser discards the response and
+ * the caller sees only `Failed to fetch` — no status, no body, indistinguishable
+ * from a dead host or a bot wall. That is what made chrischall/fetchproxy#324
+ * take five rounds to diagnose, and it is why the fallback has never once
+ * worked.
+ *
+ * Captured alongside the token rather than instead of it: the token capture
+ * still returns first when it succeeds, and this rides the SAME window, so the
+ * key costs no extra wait. Unlike the token it is a long-lived constant, so it
+ * is cached — see `api-key-cache.ts` for why that is what makes an idle-tab
+ * cold start work at all.
+ */
+const API_KEY_CAPTURE_DECL = {
+  host: 'api.resy.com',
+  path: '/*',
+  headerName: 'authorization',
 } as const;
 
 /**
@@ -184,7 +208,9 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
     ...withInPage(
       createBootstrapOpts({
         domains: 'resy.com',
-        bootstrap: { captureHeaders: [{ ...CAPTURE_DECL }] },
+        bootstrap: {
+          captureHeaders: [{ ...CAPTURE_DECL }, { ...API_KEY_CAPTURE_DECL }],
+        },
       }),
     ),
     port: getWsPort(),
@@ -206,11 +232,31 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
     //    no request of ours crosses an origin, so the isolated world's
     //    cross-origin block does not apply.
     let captureError: string;
+    // BOTH captures share one window. They resolve on the next matching
+    // request, so running them together costs nothing over running one — and
+    // the key is worth banking even on the runs where the token arrives first
+    // and we never reach the fallback.
+    // Token capture is issued FIRST — it is the primary path, and the order is
+    // observable to anyone reading the two calls.
+    const tokenCapture = transport.server.captureRequestHeader({
+      ...CAPTURE_DECL,
+      timeoutMs: CAPTURE_TIMEOUT_MS,
+    });
+    // Handler attached synchronously: this promise is not awaited until later,
+    // and an unhandled rejection in between would take the process down.
+    const keyCapture = transport.server
+      .captureRequestHeader({ ...API_KEY_CAPTURE_DECL, timeoutMs: CAPTURE_TIMEOUT_MS })
+      .then((v) => (typeof v === 'string' ? v : ''))
+      .catch(() => '');
+    // Bank it the moment it lands, without blocking anything. This is the ONLY
+    // route on the token-success path, which returns before the fallback's own
+    // await — and it is best-effort by nature, since that early return closes
+    // the transport and abandons a capture still waiting on the page.
+    void keyCapture.then((k) => {
+      if (k) writeCachedApiKey(k);
+    });
     try {
-      const captured = await transport.server.captureRequestHeader({
-        ...CAPTURE_DECL,
-        timeoutMs: CAPTURE_TIMEOUT_MS,
-      });
+      const captured = await tokenCapture;
       if (typeof captured === 'string' && captured.length >= MIN_TOKEN_LENGTH) {
         return captured;
       }
@@ -227,6 +273,10 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
     //    (`fetch_in_page`, fetchproxy#267) to succeed from a browser tab; it
     //    stays as the fallback because it is the path that does not depend on
     //    the page happening to make a request while we listen.
+    // Live capture first (it is this session's own evidence), then the cache.
+    // The banking happens where the promise is created, so it covers this path
+    // and the token-success path with one write rather than two.
+    const apiKey = (await keyCapture) || readCachedApiKey() || '';
     let response: RefreshResponse;
     try {
       response = await transport.server.postJson<RefreshResponse>(
@@ -254,6 +304,14 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
         // being per-call: everything else this MCP does stays in the isolated
         // world, where the page cannot see or alter it.
         inPage: true,
+        // Without this the request is 419 Unauthorized, and Resy's error path
+        // omits `Access-Control-Allow-Origin`, so the browser discards the
+        // response and this reads as `Failed to fetch` — the failure mode that
+        // made chrischall/fetchproxy#324 look like a bot wall for five rounds.
+        //
+        // Cached first: on the cold start this fallback exists for, the tab is
+        // idle and the live capture above returned nothing.
+        ...(apiKey ? { headers: { authorization: apiKey } } : {}),
       }
       );
     } catch (e) {
