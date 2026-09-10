@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerCredentialHealthcheckTool } from '@chrischall/mcp-utils/healthcheck';
-import type { ResyClient } from '../client.js';
+import { ResyAuthError, type ResyClient } from '../client.js';
 
 /**
  * Register `resy_healthcheck` — reports which of Resy's three mint paths is
@@ -26,6 +26,14 @@ export function registerHealthcheckTools(server: McpServer, client: ResyClient):
     probePath: '/2/user',
     resolveCredential: async () => client.describeCredential(),
     probeFn: () => client.request('GET', '/2/user'),
+    // Without this the arm that matters most fell through to `unknown`, and the
+    // tool printed "Unexpected failure — see error.message" for the single most
+    // common failure there is. The built-in ladder keys on an HTTP status, and
+    // ResyAuthError carries none: `request` rewrites 419 and auth-shaped 500s
+    // into a synthetic 401 for TokenManager's replay and then throws without
+    // one. So the hint below was unreachable until this said which arm it is.
+    classifyThrown: (err: unknown) =>
+      err instanceof ResyAuthError ? { kind: 'credential_rejected' } : undefined,
     hints: {
       no_credential:
         'No Resy auth path is configured. Set RESY_EMAIL + RESY_PASSWORD, set RESY_AUTH_TOKEN directly, or install the fetchproxy extension and sign into resy.com (and leave RESY_DISABLE_FETCHPROXY unset).',

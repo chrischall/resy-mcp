@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createTestHarness, parseToolResult } from '@chrischall/mcp-utils/test';
 import { registerHealthcheckTools } from '../src/tools/healthcheck.js';
-import type { ResyClient } from '../src/client.js';
+import { ResyAuthError, type ResyClient } from '../src/client.js';
 
 interface Result {
   ok: boolean;
@@ -47,6 +47,26 @@ describe('resy_healthcheck', () => {
     );
     expect(r.error?.kind).toBe('credential_rejected');
     expect(r.hint).toMatch(/RESY_EMAIL|resy\.com/);
+  });
+
+  // The case above fabricates `{ status: 401 }`, which the real client never
+  // throws: `request` rewrites 419 and auth-shaped 500s into a synthetic 401
+  // for the replay, then throws a PLAIN Error with no status at all. So the
+  // arm that mattered most fell through to `unknown` and printed "Unexpected
+  // failure — see error.message", while the hand-written credential_rejected
+  // hint sat there unreachable. Confirmed live against api.resy.com with a
+  // token Resy rejects before this was fixed.
+  it('classifies the error the real client actually throws', async () => {
+    const r = await call(
+      clientWith('env token (RESY_AUTH_TOKEN)', async () => {
+        throw new ResyAuthError();
+      }),
+    );
+    expect(r.error?.kind).toBe('credential_rejected');
+    expect(r.hint).not.toMatch(/Unexpected failure/);
+    // Its OWN copy, which names all three mint paths — no generic arm text
+    // can say "re-sign in at resy.com so a fresh session can be lifted".
+    expect(r.hint).toMatch(/fetchproxy path/);
   });
 
   it('keeps a Resy-side failure distinct', async () => {
