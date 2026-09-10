@@ -455,6 +455,34 @@ describe('the api key on the /3/auth/refresh fallback', () => {
     mockPostJson.mockReset().mockResolvedValue({ token: 'refreshed-tk-aaaaaaaaaaaaaaaa' });
   });
 
+  /**
+   * MEASURED with `fpx --in-page` against a signed-in tab: the identical POST
+   * returns 200 with `x-origin` and `Failed to fetch` without it. api.resy.com
+   * answers an `x-origin`-less request with no `Access-Control-Allow-Origin`,
+   * so the browser discards it and JS sees a bare TypeError.
+   *
+   * This was the LAST difference between our request and the site's, and the
+   * one that kept chrischall/resy-mcp#166's gate closed after the api key was
+   * already right.
+   */
+  it('sends x-origin on the refresh POST — without it the response is invisible', async () => {
+    vi.resetModules();
+    const { mintTokenViaFetchproxy: mint } = await import('../src/auth-fetchproxy.js');
+    await mint();
+    const opts = mockPostJson.mock.calls[0][2] as { headers?: Record<string, string> };
+    expect(opts.headers?.['x-origin']).toBe('https://resy.com');
+  });
+
+  // Derived from the relay tab URL rather than written twice: the header names
+  // the origin the request claims to come from, and that IS the tab.
+  it('derives x-origin from the relay tab, with no trailing slash', async () => {
+    vi.resetModules();
+    const { mintTokenViaFetchproxy: mint } = await import('../src/auth-fetchproxy.js');
+    await mint();
+    const opts = mockPostJson.mock.calls[0][2] as { headers?: Record<string, string> };
+    expect(opts.headers?.['x-origin'], 'an origin has no path').not.toMatch(/\/$/);
+  });
+
   it('sends the shared api key header on the refresh POST', async () => {
     vi.resetModules();
     const { mintTokenViaFetchproxy: mint } = await import('../src/auth-fetchproxy.js');
