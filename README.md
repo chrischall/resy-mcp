@@ -88,7 +88,7 @@ npm run smoke        # live endpoint probe — requires real .env
 
 ## Notes
 
-- The `RESY_API_KEY` used by the client is the public key baked into resy.com's JS bundle. If Resy rotates it, set `RESY_API_KEY` in your environment to override.
+- The api key is the public one baked into resy.com's JS bundle. It is captured from your signed-in tab and cached, so a rotation is picked up on its own — `RESY_API_KEY` pins a specific key instead, and is only needed when you want to override that.
 - Favorites and Priority Notify endpoint paths are reverse-engineered; if live endpoints differ, run `npm run smoke` and adjust.
 
 ---

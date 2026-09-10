@@ -103,9 +103,16 @@ RESY_WS_PORT=<port>           # fetchproxy bridge port. Defaults to 37149, the
                               #   test isolation, or a hosted bridged
                               #   registration — this is the variable mcp-host
                               #   names in `bridgePortEnv`.
-RESY_API_KEY=<key>            # Optional. Defaults to the public web-app key
-                              #   baked into resy.com's JS. Only override if
-                              #   Resy rotates it.
+RESY_API_KEY=<key>            # Optional. PINS the api key, beating both the
+                              #   captured one and the compiled-in default.
+                              #   Rotation no longer needs it: the key is
+                              #   captured off the live page and cached, so
+                              #   `RESY_API_KEY > captured > DEFAULT_API_KEY`.
+                              #   Set it to pin deliberately, not to recover.
+RESY_API_KEY_FILE=<path>      # Override the api-key cache path. Defaults to
+                              #   $MCP_DATA_DIR/.resy-mcp/api-key.json. Stores
+                              #   the BARE key, never the authorization header
+                              #   — see api-key-cache.ts for why that matters.
 ```
 
 `src/client.ts` loads `.env` from `dirname(import.meta.url)/../.env` (i.e. the repo root next to `dist/`) via `dotenv` with `quiet: true`. Blank values, `undefined`, `null`, and unsubstituted `${FOO}` placeholders are treated as unset. The MCPB manifest / `.mcp.json` pass credentials through `env` instead.

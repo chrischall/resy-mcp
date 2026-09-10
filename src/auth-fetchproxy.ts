@@ -47,6 +47,7 @@ import { readPortEnv, readTtlMsEnv } from '@chrischall/mcp-utils';
 // Kept in sync with package.json by release-please via the
 // `x-release-please-version` marker on PACKAGE_VERSION below
 // (registered in release-please-config.json `extra-files`).
+import { writeCapturedAuthorization } from './api-key-cache.js';
 import { apiKeyAuthorization } from './api-key.js';
 
 const PACKAGE_NAME = 'resy-mcp';
@@ -93,6 +94,27 @@ const CAPTURE_DECL = {
   host: 'api.resy.com',
   path: '/*',
   headerName: 'x-resy-auth-token',
+} as const;
+
+/**
+ * The api key, captured from the live site rather than trusted from the
+ * constant compiled in here.
+ *
+ * `DEFAULT_API_KEY` has always carried the caveat "in case Resy ever rotates
+ * it", with a manual `RESY_API_KEY` override as the remedy. That remedy needs
+ * a human to notice, and the symptom gives them nothing to notice WITH: a
+ * rotated key means 419 on every call, and Resy's error path omits
+ * `Access-Control-Allow-Origin`, so in a browser context it surfaces as an
+ * unexplained `Failed to fetch` (chrischall/fetchproxy#324).
+ *
+ * So the key is snapshotted off the page's own traffic whenever we are
+ * listening anyway, and cached. Rides the SAME window as the token capture and
+ * resolves on the same request, so it costs no extra wait.
+ */
+const API_KEY_CAPTURE_DECL = {
+  host: 'api.resy.com',
+  path: '/*',
+  headerName: 'authorization',
 } as const;
 
 
@@ -187,7 +209,9 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
     ...withInPage(
       createBootstrapOpts({
         domains: 'resy.com',
-        bootstrap: { captureHeaders: [{ ...CAPTURE_DECL }] },
+        bootstrap: {
+          captureHeaders: [{ ...CAPTURE_DECL }, { ...API_KEY_CAPTURE_DECL }],
+        },
       }),
     ),
     port: getWsPort(),
@@ -213,11 +237,25 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
     // request, so running them together costs nothing over running one — and
     // the key is worth banking even on the runs where the token arrives first
     // and we never reach the fallback.
-    try {
-      const captured = await transport.server.captureRequestHeader({
-        ...CAPTURE_DECL,
-        timeoutMs: CAPTURE_TIMEOUT_MS,
+    // Token capture is issued FIRST — it is the primary path, and the order is
+    // observable to anyone reading the two calls.
+    const tokenCapture = transport.server.captureRequestHeader({
+      ...CAPTURE_DECL,
+      timeoutMs: CAPTURE_TIMEOUT_MS,
+    });
+    // Handler attached synchronously: this promise is not awaited on the
+    // token-success path, and an unhandled rejection would take the process
+    // down. Banking happens here so BOTH paths refresh the cache with one write.
+    void transport.server
+      .captureRequestHeader({ ...API_KEY_CAPTURE_DECL, timeoutMs: CAPTURE_TIMEOUT_MS })
+      .then((k) => {
+        if (typeof k === 'string') writeCapturedAuthorization(k);
+      })
+      .catch(() => {
+        /* the cached or compiled-in key still applies */
       });
+    try {
+      const captured = await tokenCapture;
       if (typeof captured === 'string' && captured.length >= MIN_TOKEN_LENGTH) {
         return captured;
       }
