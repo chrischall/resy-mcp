@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.14.1](https://github.com/chrischall/resy-mcp/compare/v0.14.0...v0.14.1) (2026-09-10)
+
+
+### Bug Fixes
+
+* **auth:** capture the api key from the live site, don't trust the constant ([#209](https://github.com/chrischall/resy-mcp/issues/209)) ([2a7af6d](https://github.com/chrischall/resy-mcp/commit/2a7af6df817df433f0ecd433f8086dc1ec57e3bc))
+* **auth:** send Resy's api key on /3/auth/refresh, and cache it ([#205](https://github.com/chrischall/resy-mcp/issues/205)) ([360dedc](https://github.com/chrischall/resy-mcp/commit/360dedc29b14f0069ad6fc6809b86de925cb704b))
+* **deps:** @fetchproxy/server 2.10.0 ([#208](https://github.com/chrischall/resy-mcp/issues/208)) ([bfad6c1](https://github.com/chrischall/resy-mcp/commit/bfad6c102e4b0e2ba579c4690457078260666339))
+* **deps:** declare the peer floors mcp-utils 0.26.1 requires ([#211](https://github.com/chrischall/resy-mcp/issues/211)) ([e1a28ec](https://github.com/chrischall/resy-mcp/commit/e1a28ec597841016ec2c5f4f6237020bf9beea63))
+
 ## [0.14.0](https://github.com/chrischall/resy-mcp/compare/v0.13.3...v0.14.0) (2026-09-10)
 
 
