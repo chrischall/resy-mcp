@@ -163,15 +163,12 @@ describe('mintTokenViaFetchproxy', () => {
       // package.json); asserted here because this call site is where losing it
       // would surface, as `capability "fetch" not granted`.
       expect(opts.capabilities).toContain('fetch');
-      // Both headers are declared, and ORDER is asserted because it is
-      // observable: the token capture is the primary path and is issued first.
-      // The api key is the second because `/3/auth/refresh` is 419 without it
-      // (chrischall/fetchproxy#324) — a failure the browser renders as an
-      // unexplained `Failed to fetch`, since Resy's error path drops its CORS
-      // header.
+      // ONE declared capture. The api key the fallback needs is a constant
+      // this repo already ships (`api-key.ts`), so sending it widens no scope
+      // and forces no re-pair — asserted here because a second declaration
+      // would silently cost every user an approval.
       expect(opts.captureHeaders).toEqual([
         { host: 'api.resy.com', path: '/*', headerName: 'x-resy-auth-token' },
-        { host: 'api.resy.com', path: '/*', headerName: 'authorization' },
       ]);
       // The capture target is a subdomain of the declared trust boundary.
       expect(opts.domains).toEqual(['resy.com']);
@@ -392,101 +389,39 @@ describe('mintTokenViaFetchproxy', () => {
 });
 
 /**
- * The api key on the fallback (chrischall/fetchproxy#324, chrischall/resy-mcp#166).
+ * The api key on the /3/auth/refresh fallback (chrischall/fetchproxy#324,
+ * chrischall/resy-mcp#166).
  *
- * `/3/auth/refresh` is answered **419 Unauthorized** without an
- * `authorization: ResyAPI api_key="…"` header, and Resy's error path omits
+ * `/3/auth/refresh` is answered 419 Unauthorized without
+ * `authorization: ResyAPI api_key="…"`, and Resy's error path omits
  * `Access-Control-Allow-Origin` — so the browser discards the response and the
- * caller sees only `Failed to fetch`, with no status and no body. The fallback
- * has therefore never once worked, and five rounds of #324 went to WAFs and
- * CORS before the missing header turned out to be the whole story.
+ * caller sees only `Failed to fetch`, with no status and no body. That is why
+ * the fallback had never once worked.
+ *
+ * The key is the constant `api-key.ts` already resolves for every other
+ * api.resy.com call, so this costs no capture, no cache and no re-pair.
  */
 describe('the api key on the /3/auth/refresh fallback', () => {
-  let mint: typeof import('../src/auth-fetchproxy.js').mintTokenViaFetchproxy;
-  const KEY = 'ResyAPI api_key="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"';
-
-  let keyFile: string;
-  const priorKeyFile = process.env.RESY_API_KEY_FILE;
-
-  beforeEach(async () => {
-    // The key cache is a REAL file by design, so each case gets its own or the
-    // first test's captured key leaks into the next one's "no key" assertion.
-    // (It did, and that is how this isolation was noticed.)
-    keyFile = join(mkdtempSync(join(tmpdir(), 'resy-key-')), 'api-key.json');
-    process.env.RESY_API_KEY_FILE = keyFile;
+  it('sends the shared api key header on the refresh POST', async () => {
     vi.resetModules();
-    mockConstructor.mockReset();
-    mockListen.mockReset().mockResolvedValue(undefined);
-    mockClose.mockReset().mockResolvedValue(undefined);
-    mockPostJson.mockReset().mockResolvedValue({ token: 'refreshed-tk-aaaaaaaaaaaaaaaa' });
-    mockCapture.mockReset().mockRejectedValue(new Error('no capture in this test'));
-    ({ mintTokenViaFetchproxy: mint } = await import('../src/auth-fetchproxy.js'));
-  });
-
-  afterEach(() => {
-    if (priorKeyFile === undefined) delete process.env.RESY_API_KEY_FILE;
-    else process.env.RESY_API_KEY_FILE = priorKeyFile;
-  });
-
-  /** The captured key rides the fallback request. */
-  it('sends a captured authorization header on the refresh POST', async () => {
-    // call 0 = token capture (fails), call 1 = api key capture (succeeds)
-    mockCapture
-      .mockRejectedValueOnce(new Error('capture timed out'))
-      .mockResolvedValueOnce(KEY);
+    const { mintTokenViaFetchproxy: mint } = await import('../src/auth-fetchproxy.js');
     await mint();
     const opts = mockPostJson.mock.calls[0][2] as { headers?: Record<string, string> };
-    expect(opts.headers?.authorization).toBe(KEY);
+    expect(opts.headers?.authorization).toMatch(/^ResyAPI api_key="..+"$/);
   });
 
-  // Without a key there is nothing to send, and sending an empty header would
-  // be worse than sending none: it is the same 419 with a header that looks set.
-  it('omits the header entirely when no key is available', async () => {
-    await mint();
-    const opts = mockPostJson.mock.calls[0][2] as { headers?: Record<string, string> };
-    expect(opts.headers?.authorization).toBeUndefined();
-  });
-
-  // M2: the cache is the whole mechanism for #166. Live capture returns
-  // nothing on an idle tab; a key banked on an earlier run still works.
-  it('falls back to the cached key when live capture yields nothing', async () => {
-    writeFileSync(keyFile, JSON.stringify({ apiKey: KEY, capturedAt: Date.now() }));
-    await mint(); // both captures reject (the default in beforeEach)
-    const opts = mockPostJson.mock.calls[0][2] as { headers?: Record<string, string> };
-    expect(opts.headers?.authorization).toBe(KEY);
-  });
-
-  // M3: banking it is what leaves the NEXT cold start able to do the above.
-  it('writes a captured key to the cache', async () => {
-    mockCapture
-      .mockRejectedValueOnce(new Error('capture timed out'))
-      .mockResolvedValueOnce(KEY);
-    await mint();
-    expect(JSON.parse(readFileSync(keyFile, 'utf8')).apiKey).toBe(KEY);
-  });
-
-  // A live capture is this session's own evidence and outranks a stale cache.
-  it('prefers a freshly captured key over the cached one', async () => {
-    writeFileSync(keyFile, JSON.stringify({ apiKey: 'ResyAPI api_key="stale-aaaaaaaaaaaaaaaaaaaa"', capturedAt: 1 }));
-    mockCapture
-      .mockRejectedValueOnce(new Error('capture timed out'))
-      .mockResolvedValueOnce(KEY);
-    await mint();
-    const opts = mockPostJson.mock.calls[0][2] as { headers?: Record<string, string> };
-    expect(opts.headers?.authorization).toBe(KEY);
-  });
-
-  // The point of caching: the fallback exists FOR the cold start against an
-  // idle tab, which is exactly when live capture returns nothing.
-  it('still asks for the key even when the token capture succeeds first', async () => {
-    mockCapture
-      .mockResolvedValueOnce('captured-tk-aaaaaaaaaaaaaaaaaaaaaa')
-      .mockResolvedValueOnce(KEY);
-    const token = await mint();
-    expect(token).toBe('captured-tk-aaaaaaaaaaaaaaaaaaaaaa');
-    // Two captures were issued, so the key is banked on the run that never
-    // needed the fallback — which is what leaves a LATER cold start able to use it.
-    expect(mockCapture).toHaveBeenCalledTimes(2);
-    expect(mockCapture.mock.calls[1][0]).toMatchObject({ headerName: 'authorization' });
+  it('honours a RESY_API_KEY override, like every other call does', async () => {
+    const prior = process.env.RESY_API_KEY;
+    process.env.RESY_API_KEY = 'override-key-aaaaaaaa';
+    try {
+      vi.resetModules();
+      const { mintTokenViaFetchproxy: mint } = await import('../src/auth-fetchproxy.js');
+      await mint();
+      const opts = mockPostJson.mock.calls[0][2] as { headers?: Record<string, string> };
+      expect(opts.headers?.authorization).toBe('ResyAPI api_key="override-key-aaaaaaaa"');
+    } finally {
+      if (prior === undefined) delete process.env.RESY_API_KEY;
+      else process.env.RESY_API_KEY = prior;
+    }
   });
 });

@@ -1,5 +1,6 @@
 import { dirname, join } from 'path';
 import { createTokenCache, reportCacheWriteFailure } from './token-cache.js';
+import { resolveApiKey } from './api-key.js';
 import { fileURLToPath } from 'url';
 import { readEnvVar, loadDotenvSafely, parseBoolEnv, truncateErrorMessage } from '@chrischall/mcp-utils';
 import { TokenManager } from '@chrischall/mcp-utils/session';
@@ -23,13 +24,6 @@ function readVar(key: string): string | undefined {
 }
 
 const BASE_URL = 'https://api.resy.com';
-// Resy's PUBLIC web-app API key — the same value baked into resy.com's browser
-// JavaScript and visible to anyone who opens DevTools on the site. It is not a
-// secret: every unauthenticated request to api.resy.com carries it. We only use
-// it as the default when RESY_API_KEY is unset, and document overriding it in
-// the README in case Resy ever rotates it. (Audited: not a committed secret.)
-const DEFAULT_API_KEY = 'VbWk7s3L4KiK5fzlO7JD3Q5EYolJI7n5';
-
 // Resy auth tokens are opaque, carry no published TTL, and have no separate
 // refresh token — a "refresh" is just re-running the three-path mint. So:
 //   • The TokenManager is seeded with a placeholder access token that is
@@ -67,7 +61,7 @@ export class ResyClient {
   private readonly tokens: TokenManager;
 
   constructor() {
-    this.apiKey = readVar('RESY_API_KEY') || DEFAULT_API_KEY;
+    this.apiKey = resolveApiKey();
     // Race-safe token lifecycle from the shared session kit. The refresh
     // callback runs resy's three-path mint; single-flight + the usedToken
     // double-refresh guard live inside TokenManager.withAuth (see request()).
