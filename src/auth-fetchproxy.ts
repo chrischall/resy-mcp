@@ -47,6 +47,8 @@ import { readPortEnv, readTtlMsEnv } from '@chrischall/mcp-utils';
 // Kept in sync with package.json by release-please via the
 // `x-release-please-version` marker on PACKAGE_VERSION below
 // (registered in release-please-config.json `extra-files`).
+import { apiKeyAuthorization } from './api-key.js';
+
 const PACKAGE_NAME = 'resy-mcp';
 const PACKAGE_VERSION = '0.14.0'; // x-release-please-version
 
@@ -92,6 +94,7 @@ const CAPTURE_DECL = {
   path: '/*',
   headerName: 'x-resy-auth-token',
 } as const;
+
 
 /**
  * How long to wait for the page to make a request we can read.
@@ -206,6 +209,10 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
     //    no request of ours crosses an origin, so the isolated world's
     //    cross-origin block does not apply.
     let captureError: string;
+    // BOTH captures share one window. They resolve on the next matching
+    // request, so running them together costs nothing over running one — and
+    // the key is worth banking even on the runs where the token arrives first
+    // and we never reach the fallback.
     try {
       const captured = await transport.server.captureRequestHeader({
         ...CAPTURE_DECL,
@@ -254,6 +261,15 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
         // being per-call: everything else this MCP does stays in the isolated
         // world, where the page cannot see or alter it.
         inPage: true,
+        // Without this the request is 419 Unauthorized, and Resy's error path
+        // omits `Access-Control-Allow-Origin`, so the browser discards the
+        // response and this reads as `Failed to fetch` — the failure mode that
+        // made chrischall/fetchproxy#324 look like a bot wall for five rounds.
+        //
+        // The SAME key every other api.resy.com call already carries
+        // (`api-key.ts`), so nothing has to be captured, cached or approved to
+        // send it — it was in the repo the whole time.
+        headers: { authorization: apiKeyAuthorization() },
       }
       );
     } catch (e) {

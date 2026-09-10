@@ -1,3 +1,7 @@
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 /**
@@ -159,6 +163,10 @@ describe('mintTokenViaFetchproxy', () => {
       // package.json); asserted here because this call site is where losing it
       // would surface, as `capability "fetch" not granted`.
       expect(opts.capabilities).toContain('fetch');
+      // ONE declared capture. The api key the fallback needs is a constant
+      // this repo already ships (`api-key.ts`), so sending it widens no scope
+      // and forces no re-pair — asserted here because a second declaration
+      // would silently cost every user an approval.
       expect(opts.captureHeaders).toEqual([
         { host: 'api.resy.com', path: '/*', headerName: 'x-resy-auth-token' },
       ]);
@@ -377,5 +385,43 @@ describe('mintTokenViaFetchproxy', () => {
       }
       delete process.env.RESY_WS_PORT;
     });
+  });
+});
+
+/**
+ * The api key on the /3/auth/refresh fallback (chrischall/fetchproxy#324,
+ * chrischall/resy-mcp#166).
+ *
+ * `/3/auth/refresh` is answered 419 Unauthorized without
+ * `authorization: ResyAPI api_key="…"`, and Resy's error path omits
+ * `Access-Control-Allow-Origin` — so the browser discards the response and the
+ * caller sees only `Failed to fetch`, with no status and no body. That is why
+ * the fallback had never once worked.
+ *
+ * The key is the constant `api-key.ts` already resolves for every other
+ * api.resy.com call, so this costs no capture, no cache and no re-pair.
+ */
+describe('the api key on the /3/auth/refresh fallback', () => {
+  it('sends the shared api key header on the refresh POST', async () => {
+    vi.resetModules();
+    const { mintTokenViaFetchproxy: mint } = await import('../src/auth-fetchproxy.js');
+    await mint();
+    const opts = mockPostJson.mock.calls[0][2] as { headers?: Record<string, string> };
+    expect(opts.headers?.authorization).toMatch(/^ResyAPI api_key="..+"$/);
+  });
+
+  it('honours a RESY_API_KEY override, like every other call does', async () => {
+    const prior = process.env.RESY_API_KEY;
+    process.env.RESY_API_KEY = 'override-key-aaaaaaaa';
+    try {
+      vi.resetModules();
+      const { mintTokenViaFetchproxy: mint } = await import('../src/auth-fetchproxy.js');
+      await mint();
+      const opts = mockPostJson.mock.calls[0][2] as { headers?: Record<string, string> };
+      expect(opts.headers?.authorization).toBe('ResyAPI api_key="override-key-aaaaaaaa"');
+    } finally {
+      if (prior === undefined) delete process.env.RESY_API_KEY;
+      else process.env.RESY_API_KEY = prior;
+    }
   });
 });

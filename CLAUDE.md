@@ -45,6 +45,11 @@ src/
   client.ts             # ResyClient: lazy auth (env-token | password | fetchproxy),
                         #   token caching, 401/419/auth-500 → refresh+retry,
                         #   429 backoff+retry, URLSearchParams vs JSON body
+  api-key.ts            # resolveApiKey()/apiKeyAuthorization(): the PUBLIC
+                        #   web-app key every api.resy.com call carries. Its own
+                        #   leaf module because client.ts imports
+                        #   auth-fetchproxy.ts and both need it — reaching back
+                        #   into client.ts would be a cycle.
   auth-fetchproxy.ts    # mintTokenViaFetchproxy(): single POST /3/auth/refresh
                         #   through @fetchproxy/server's FetchproxyServer.
                         #   Pattern B — bootstraps a token then closes the
