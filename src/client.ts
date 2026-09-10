@@ -141,9 +141,7 @@ export class ResyClient {
     const { text, status, statusText, ok } = captured!;
 
     if (looksLikeAuthFailure(status, text)) {
-      throw new Error(
-        'Resy session rejected — verify RESY_EMAIL / RESY_PASSWORD'
-      );
+      throw new ResyAuthError();
     }
 
     if (status === 429) {
@@ -180,7 +178,7 @@ export class ResyClient {
       throw new Error('Rate limited by Resy API');
     }
     if (looksLikeAuthFailure(res.status, text)) {
-      throw new Error('Resy session rejected — verify RESY_EMAIL / RESY_PASSWORD');
+      throw new ResyAuthError();
     }
     if (!res.ok) {
       throw new Error(
@@ -302,6 +300,22 @@ export class ResyClient {
       );
     }
     return token;
+  }
+}
+
+/**
+ * Resy refused the token. A CLASS rather than a bare Error because the
+ * healthcheck has to tell this apart from a Resy-side outage, and it cannot do
+ * that from a status: `request` rewrites 419 and auth-shaped 500s into a
+ * synthetic 401 to drive TokenManager's one-shot replay, then throws with no
+ * status at all. Matching the message instead would tie the arm to a sentence.
+ *
+ * The message is unchanged, so what a real tool reports is unchanged.
+ */
+export class ResyAuthError extends Error {
+  constructor() {
+    super('Resy session rejected — verify RESY_EMAIL / RESY_PASSWORD');
+    this.name = 'ResyAuthError';
   }
 }
 
