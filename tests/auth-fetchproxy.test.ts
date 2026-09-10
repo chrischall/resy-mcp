@@ -48,6 +48,12 @@ vi.mock('@chrischall/mcp-utils/fetchproxy', () => ({
   },
 }));
 
+// The api-key cache is a REAL file. Every case gets its own, or a captured
+// value from one test is read back by the next — which is how the token
+// fixture came to be banked as an api key and failed a client test.
+const keyFileDir = mkdtempSync(join(tmpdir(), 'resy-akc-'));
+process.env.RESY_API_KEY_FILE = join(keyFileDir, 'api-key.json');
+
 describe('mintTokenViaFetchproxy', () => {
   let mintTokenViaFetchproxy: typeof import('../src/auth-fetchproxy.js').mintTokenViaFetchproxy;
 
@@ -163,12 +169,17 @@ describe('mintTokenViaFetchproxy', () => {
       // package.json); asserted here because this call site is where losing it
       // would surface, as `capability "fetch" not granted`.
       expect(opts.capabilities).toContain('fetch');
-      // ONE declared capture. The api key the fallback needs is a constant
-      // this repo already ships (`api-key.ts`), so sending it widens no scope
-      // and forces no re-pair — asserted here because a second declaration
-      // would silently cost every user an approval.
+      // TWO declared captures, and ORDER is asserted because it is observable:
+      // the token is the primary path and is issued first. The api key is the
+      // second because the compiled-in constant goes stale the day Resy rotates
+      // it, and a rotated key is invisible — 419 on every call, with no CORS
+      // header on the error, so a browser reports only `Failed to fetch`.
+      //
+      // This costs every user one re-pair, which is the deliberate trade: an
+      // approval once, against a silent fleet-wide outage whenever the key moves.
       expect(opts.captureHeaders).toEqual([
         { host: 'api.resy.com', path: '/*', headerName: 'x-resy-auth-token' },
+        { host: 'api.resy.com', path: '/*', headerName: 'authorization' },
       ]);
       // The capture target is a subdomain of the declared trust boundary.
       expect(opts.domains).toEqual(['resy.com']);
