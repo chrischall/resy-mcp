@@ -304,11 +304,6 @@ export class ResyClient {
 }
 
 /**
- * Narrow auth-failure classifier: a 401, a 419, or a 500 whose body names an
- * auth-scoped phrase. Deliberately does NOT match arbitrary mentions of "token"
- * (e.g. "book_token expired" is a stale booking token, not an auth failure).
- */
-/**
  * Resy refused the token. A CLASS rather than a bare Error because the
  * healthcheck has to tell this apart from a Resy-side outage, and it cannot do
  * that from a status: `request` rewrites 419 and auth-shaped 500s into a
@@ -324,6 +319,11 @@ export class ResyAuthError extends Error {
   }
 }
 
+/**
+ * Narrow auth-failure classifier: a 401, a 419, or a 500 whose body names an
+ * auth-scoped phrase. Deliberately does NOT match arbitrary mentions of "token"
+ * (e.g. "book_token expired" is a stale booking token, not an auth failure).
+ */
 function looksLikeAuthFailure(status: number, text: string): boolean {
   return (
     status === 401 ||
