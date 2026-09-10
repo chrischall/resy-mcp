@@ -28,12 +28,16 @@ const REAL_CACHE = join(homedir(), '.resy-mcp');
  * there — `npm run smoke` writes one legitimately, and a developer who runs
  * smoke before the suite must not be told a test leaked.
  */
-function sampleRealCache(): { dir: number; token: number | null } | null {
+function sampleRealCache(): {
+  dir: number; token: number | null; apiKey: number | null;
+} | null {
   if (!existsSync(REAL_CACHE)) return null;
   const token = join(REAL_CACHE, 'token.json');
+  const apiKey = join(REAL_CACHE, 'api-key.json');
   return {
     dir: statSync(REAL_CACHE).mtimeMs,
     token: existsSync(token) ? statSync(token).mtimeMs : null,
+    apiKey: existsSync(apiKey) ? statSync(apiKey).mtimeMs : null,
   };
 }
 
@@ -42,6 +46,11 @@ const CACHE_BEFORE = sampleRealCache();
 beforeEach(() => {
   process.env.RESY_TOKEN_CACHE = 'false';
   process.env.RESY_TOKEN_FILE = join(CACHE_DIR, 'token.json');
+  // Pinned for the same reason as the token file, and it is not hypothetical:
+  // an api key captured by one test was read back by another and broke
+  // client.test.ts's exact Authorization assertion three files away. A cache
+  // this suite can write is a cache it must not share.
+  process.env.RESY_API_KEY_FILE = join(CACHE_DIR, 'api-key.json');
 });
 
 afterAll(() => {
@@ -71,7 +80,11 @@ afterAll(() => {
     throw new Error(`A test wrote to ${REAL_CACHE}. ${hint}`);
   }
 
-  if (after.dir !== CACHE_BEFORE.dir || after.token !== CACHE_BEFORE.token) {
+  if (
+    after.dir !== CACHE_BEFORE.dir ||
+    after.token !== CACHE_BEFORE.token ||
+    after.apiKey !== CACHE_BEFORE.apiKey
+  ) {
     // It pre-existed and the suite wrote THROUGH it. Still a leak, so still a
     // failure — but do NOT delete: this is the developer's real cache, written
     // by `npm run smoke`, and destroying it is the harm the guard is meant to

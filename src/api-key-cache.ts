@@ -43,31 +43,38 @@ interface CachedApiKey {
 }
 
 /**
- * What a Resy `authorization` header looks like.
+ * The header a capture yields, and the BARE key inside it.
  *
- * A LENGTH check is not enough, and a test proved it: the token fixture
- * (`captured-tk-…`) sailed past a length guard and was cached AS the api key,
- * so every later call sent a token where a key belongs. In production the same
- * confusion is one mis-declared capture away, and the result would be a
- * permanent invisible 419 — the exact failure this cache exists to prevent,
- * made sticky.
+ * The distinction is the whole contract here and getting it wrong was a real
+ * bug: `captureRequestHeader` returns the full `ResyAPI api_key="…"` header,
+ * while `DEFAULT_API_KEY` is the bare key and every call site wraps whatever
+ * `resolveApiKey()` hands back. Caching the header therefore produced
+ * `ResyAPI api_key="ResyAPI api_key="…""` on every request the moment a
+ * capture succeeded — malformed, and a 419 on every call.
  *
- * So the shape is checked. Anything that is not `ResyAPI api_key="…"` is not
- * an api key, whatever its length.
+ * So this module deals in BARE keys only: the header is parsed on the way in
+ * and never stored. One type through all three precedence layers is what stops
+ * the two from being confused again.
  */
-const API_KEY_RE = /^ResyAPI api_key="[^"]+"$/;
+const AUTHORIZATION_RE = /^ResyAPI api_key="([^"]+)"$/;
+/**
+ * A bare key's shape. Checked rather than merely measured because a LENGTH
+ * guard already let the token fixture (`captured-tk-…`) through once, and a
+ * token cached where a key belongs is a permanent invisible 419.
+ */
+const BARE_KEY_RE = /^[A-Za-z0-9_-]{16,128}$/;
 
 function isCached(raw: unknown): raw is CachedApiKey {
   if (raw === null || typeof raw !== 'object') return false;
   const c = raw as Partial<CachedApiKey>;
   return (
     typeof c.apiKey === 'string' &&
-    API_KEY_RE.test(c.apiKey) &&
+    BARE_KEY_RE.test(c.apiKey) &&
     typeof c.capturedAt === 'number'
   );
 }
 
-/** The cached key, or `null` when there is nothing usable. Never throws. */
+/** The cached BARE key, or `null` when there is nothing usable. Never throws. */
 export function readCachedApiKey(env: NodeJS.ProcessEnv = process.env): string | null {
   try {
     const raw: unknown = JSON.parse(readFileSync(apiKeyCachePath(env), 'utf8'));
@@ -80,14 +87,20 @@ export function readCachedApiKey(env: NodeJS.ProcessEnv = process.env): string |
 }
 
 /**
- * Cache a captured key. Never throws: failing to WRITE it costs the next cold
- * start a capture, while throwing would fail a mint that has already succeeded.
+ * Cache the key out of a captured `authorization` header.
+ *
+ * Takes the HEADER, stores the BARE key — the asymmetry is deliberate, so a
+ * caller holding a capture result cannot accidentally store the wrapper.
+ * Never throws: failing to write costs the next cold start a capture, while
+ * throwing would fail a mint that has already succeeded.
  */
-export function writeCachedApiKey(
-  apiKey: string,
+export function writeCapturedAuthorization(
+  header: string,
   env: NodeJS.ProcessEnv = process.env,
 ): void {
-  if (typeof apiKey !== 'string' || !API_KEY_RE.test(apiKey)) return;
+  if (typeof header !== 'string') return;
+  const apiKey = AUTHORIZATION_RE.exec(header)?.[1];
+  if (apiKey === undefined || !BARE_KEY_RE.test(apiKey)) return;
   try {
     const path = apiKeyCachePath(env);
     mkdirSync(dirname(path), { recursive: true });

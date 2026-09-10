@@ -47,7 +47,7 @@ import { readPortEnv, readTtlMsEnv } from '@chrischall/mcp-utils';
 // Kept in sync with package.json by release-please via the
 // `x-release-please-version` marker on PACKAGE_VERSION below
 // (registered in release-please-config.json `extra-files`).
-import { writeCachedApiKey } from './api-key-cache.js';
+import { writeCapturedAuthorization } from './api-key-cache.js';
 import { apiKeyAuthorization } from './api-key.js';
 
 const PACKAGE_NAME = 'resy-mcp';
@@ -249,7 +249,7 @@ export async function mintTokenViaFetchproxy(): Promise<string> {
     void transport.server
       .captureRequestHeader({ ...API_KEY_CAPTURE_DECL, timeoutMs: CAPTURE_TIMEOUT_MS })
       .then((k) => {
-        if (typeof k === 'string') writeCachedApiKey(k);
+        if (typeof k === 'string') writeCapturedAuthorization(k);
       })
       .catch(() => {
         /* the cached or compiled-in key still applies */

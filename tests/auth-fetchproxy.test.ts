@@ -412,7 +412,49 @@ describe('mintTokenViaFetchproxy', () => {
  * The key is the constant `api-key.ts` already resolves for every other
  * api.resy.com call, so this costs no capture, no cache and no re-pair.
  */
+describe('the api key capture banks a bare key', () => {
+  const HEADER = 'ResyAPI api_key="livekey-aaaaaaaaaaaaaaaa"';
+
+  /**
+   * End to end through the FIRE-AND-FORGET path, which nothing exercised: the
+   * shared `mockCapture` never gave the second call a value that both resolved
+   * and looked like an authorization header, so the write was never reached.
+   *
+   * It is the path that matters. A captured header must land in the cache as
+   * the BARE key — storing the header is what produced a double-wrapped
+   * `Authorization` on every later call.
+   */
+  it('writes the bare key when the capture yields a header', async () => {
+    const keyFile = join(mkdtempSync(join(tmpdir(), 'resy-bank-')), 'api-key.json');
+    const prior = process.env.RESY_API_KEY_FILE;
+    process.env.RESY_API_KEY_FILE = keyFile;
+    try {
+      vi.resetModules();
+      // Queue rather than reset: `mockCapture` is shared, and resetting it
+      // strips the default every later test relies on.
+      mockCapture
+        .mockResolvedValueOnce('captured-tk-aaaaaaaaaaaaaaaaaaaaaa') // token
+        .mockResolvedValueOnce(HEADER); // api key header
+      const { mintTokenViaFetchproxy: mint } = await import('../src/auth-fetchproxy.js');
+      await mint();
+      // The write is fire-and-forget, so let its microtask land.
+      await new Promise((r) => setTimeout(r, 0));
+      expect(JSON.parse(readFileSync(keyFile, 'utf8')).apiKey)
+        .toBe('livekey-aaaaaaaaaaaaaaaa');
+    } finally {
+      if (prior === undefined) delete process.env.RESY_API_KEY_FILE;
+      else process.env.RESY_API_KEY_FILE = prior;
+    }
+  });
+});
+
 describe('the api key on the /3/auth/refresh fallback', () => {
+  beforeEach(() => {
+    // Own defaults, so this block does not depend on what a sibling left behind.
+    mockCapture.mockReset().mockRejectedValue(new Error('no capture in this test'));
+    mockPostJson.mockReset().mockResolvedValue({ token: 'refreshed-tk-aaaaaaaaaaaaaaaa' });
+  });
+
   it('sends the shared api key header on the refresh POST', async () => {
     vi.resetModules();
     const { mintTokenViaFetchproxy: mint } = await import('../src/auth-fetchproxy.js');

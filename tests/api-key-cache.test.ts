@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { describe, it, expect } from 'vitest';
 
-import { readCachedApiKey, writeCachedApiKey } from '../src/api-key-cache.js';
+import { readCachedApiKey, writeCapturedAuthorization } from '../src/api-key-cache.js';
 
 /**
  * The key cache is what makes the `/3/auth/refresh` fallback work UNATTENDED
@@ -16,13 +16,16 @@ const freshEnv = () => ({
   RESY_API_KEY_FILE: join(mkdtempSync(join(tmpdir(), 'resy-kc-')), 'api-key.json'),
 }) as NodeJS.ProcessEnv;
 
-const KEY = 'ResyAPI api_key="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"';
+const HEADER = 'ResyAPI api_key="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"';
+const BARE = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
 describe('api key cache', () => {
-  it('round-trips a captured key', () => {
+  // The contract: a HEADER goes in, the BARE key comes out. Storing the header
+  // is what produced `ResyAPI api_key="ResyAPI api_key="…""` on every call.
+  it('takes a header and returns the bare key', () => {
     const env = freshEnv();
-    writeCachedApiKey(KEY, env);
-    expect(readCachedApiKey(env)).toBe(KEY);
+    writeCapturedAuthorization(HEADER, env);
+    expect(readCachedApiKey(env)).toBe(BARE);
   });
 
   it('answers null when nothing is cached', () => {
@@ -31,19 +34,12 @@ describe('api key cache', () => {
 
   // Caching an empty or echoed value would send a header that LOOKS set and
   // still 419s — the same invisible failure, made permanent.
-  it('refuses to store an implausibly short value', () => {
-    const env = freshEnv();
-    for (const bad of ['', 'short', 'ResyAPI api_key=""']) {
-      writeCachedApiKey(bad, env);
-      expect(readCachedApiKey(env), `stored ${JSON.stringify(bad)}`).toBeNull();
-    }
-  });
 
   // Distinguishes the WRITE guard from the read guard: a refused value must
   // not reach the file at all, or the two guards are one guard with a spare.
-  it('writes no file at all for a short value', () => {
+  it('writes no file at all for a value it will not store', () => {
     const env = freshEnv();
-    writeCachedApiKey('short', env);
+    writeCapturedAuthorization('not-a-header', env);
     expect(existsSync(env.RESY_API_KEY_FILE as string)).toBe(false);
   });
 
@@ -63,43 +59,33 @@ describe('api key cache', () => {
   // mint that has already succeeded.
   it('never throws when the path is unwritable', () => {
     expect(() =>
-      writeCachedApiKey(KEY, { RESY_API_KEY_FILE: '/proc/nope/api-key.json' } as NodeJS.ProcessEnv),
+      writeCapturedAuthorization(HEADER, { RESY_API_KEY_FILE: '/proc/nope/api-key.json' } as NodeJS.ProcessEnv),
     ).not.toThrow();
   });
 });
 
-/**
- * Shape, not length. A test banked the TOKEN fixture as an api key because a
- * length guard let it through; in production the same confusion is one
- * mis-declared capture away, and the result is a permanent invisible 419.
- */
 describe('api key shape', () => {
-  it('refuses a value that is not a ResyAPI authorization header', () => {
+  it('refuses anything that is not a ResyAPI authorization header', () => {
     const env = freshEnv();
     for (const bad of [
-      'captured-tk-aaaaaaaaaaaaaaaaaaaaaa', // a token, long enough to pass a length check
+      'captured-tk-aaaaaaaaaaaaaaaaaaaaaa', // a token — long, and not a header
       'Bearer aaaaaaaaaaaaaaaaaaaaaaaa',
-      'ResyAPI api_key=', // no quoted value
-      'ResyAPI api_key=""', // empty
+      'ResyAPI api_key=',
+      'ResyAPI api_key=""',
+      'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', // a BARE key: right value, wrong shape in
     ]) {
-      writeCachedApiKey(bad, env);
+      writeCapturedAuthorization(bad, env);
       expect(readCachedApiKey(env), `stored ${JSON.stringify(bad)}`).toBeNull();
     }
   });
 
-  it('accepts a well-formed header', () => {
-    const env = freshEnv();
-    writeCachedApiKey('ResyAPI api_key="abc123"', env);
-    expect(readCachedApiKey(env)).toBe('ResyAPI api_key="abc123"');
-  });
-
   // Belt and braces are two guards, not one: a file written by an older build
-  // must not be believed just because it is on disk.
-  it('refuses a badly shaped value already on disk', () => {
+  // stored the full header, and must not be believed now.
+  it('refuses a header-shaped value already on disk', () => {
     const env = freshEnv();
     writeFileSync(
       env.RESY_API_KEY_FILE as string,
-      JSON.stringify({ apiKey: 'captured-tk-aaaaaaaaaaaaaaaaaaaaaa', capturedAt: Date.now() }),
+      JSON.stringify({ apiKey: HEADER, capturedAt: Date.now() }),
     );
     expect(readCachedApiKey(env)).toBeNull();
   });

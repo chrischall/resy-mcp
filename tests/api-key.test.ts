@@ -17,7 +17,8 @@ import { resolveApiKey } from '../src/api-key.js';
  * case Resy ever rotates it" — this makes that automatic rather than manual.
  */
 const COMPILED_IN = 'VbWk7s3L4KiK5fzlO7JD3Q5EYolJI7n5';
-const CAPTURED = 'ResyAPI api_key="captured-aaaaaaaaaaaaaaaa"';
+// The cache stores BARE keys; the header is parsed on the way in.
+const CAPTURED = 'captured-aaaaaaaaaaaaaaaa';
 
 const priorKey = process.env.RESY_API_KEY;
 const priorFile = process.env.RESY_API_KEY_FILE;
