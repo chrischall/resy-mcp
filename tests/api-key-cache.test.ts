@@ -57,9 +57,21 @@ describe('api key cache', () => {
 
   // A write failure costs the next cold start a capture; throwing would fail a
   // mint that has already succeeded.
+  //
+  // The unwritable path is a file with a child path under it, which is ENOTDIR
+  // on every platform and fails instantly. It used to be `/proc/nope/...`,
+  // which is only unwritable on Linux — and on Linux it did not fail fast, it
+  // WEDGED: CI ran every other test file in five seconds and then sat until a
+  // timeout killed it four minutes later, with no summary and no coverage
+  // report to say why. A test fixture that behaves differently per platform is
+  // one the developer cannot reproduce.
   it('never throws when the path is unwritable', () => {
+    const parent = join(mkdtempSync(join(tmpdir(), 'resy-ak-')), 'not-a-dir');
+    writeFileSync(parent, 'x');
     expect(() =>
-      writeCapturedAuthorization(HEADER, { RESY_API_KEY_FILE: '/proc/nope/api-key.json' } as NodeJS.ProcessEnv),
+      writeCapturedAuthorization(HEADER, {
+        RESY_API_KEY_FILE: join(parent, 'api-key.json'),
+      } as NodeJS.ProcessEnv),
     ).not.toThrow();
   });
 });

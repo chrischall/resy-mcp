@@ -23,9 +23,5 @@ jobs:
     with:
       node-version: "26"
       build-command: npm run build
-      # TEMPORARY diagnostic (revert before merge): the job wedged for 26+
-      # minutes with no readable log, because Actions withholds logs while a
-      # run is in progress. Bounding it turns an un-debuggable stall into a
-      # fast failure WITH a log naming the last test file that started.
-      test-command: timeout -k 10 240 npm run test:coverage
+      test-command: npm run test:coverage
       gate-mode: status
