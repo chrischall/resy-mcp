@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.3](https://github.com/chrischall/resy-mcp/compare/v0.14.2...v0.14.3) (2026-09-13)
+
+
+### Bug Fixes
+
+* **deps:** @fetchproxy/server 2.11.3, so the hosted extension pin persists ([#214](https://github.com/chrischall/resy-mcp/issues/214)) ([b8d79d1](https://github.com/chrischall/resy-mcp/commit/b8d79d1641e15dcdd4ef95880eff6cf5ac176e89))
+
 ## [0.14.2](https://github.com/chrischall/resy-mcp/compare/v0.14.1...v0.14.2) (2026-09-10)
 
 
