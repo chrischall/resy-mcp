@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.4](https://github.com/chrischall/resy-mcp/compare/v0.14.3...v0.14.4) (2026-09-15)
+
+
+### Bug Fixes
+
+* **deps:** @fetchproxy/server 3.0.1 — capped peer frames, logged load drops, atomic identity writes ([#219](https://github.com/chrischall/resy-mcp/issues/219)) ([ac44ff4](https://github.com/chrischall/resy-mcp/commit/ac44ff44cae30da2eb13819a5b879b7feedc15ba))
+
 ## [0.14.3](https://github.com/chrischall/resy-mcp/compare/v0.14.2...v0.14.3) (2026-09-14)
 
 
