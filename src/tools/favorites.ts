@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import type { ResyClient } from '../client.js';
 import { minifiedResult } from '../mcp.js';
 import { viewArg, viewResponse } from '../view.js';
@@ -24,9 +24,9 @@ export function registerFavoriteTools(server: McpServer, client: ResyClient): vo
     'resy_list_favorites',
     {
       description: 'List the user\'s favorited Resy venues ("hit list").',
-      inputSchema: {
+      inputSchema: z.object({
         view: viewArg(),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ view }) => {
@@ -54,7 +54,7 @@ export function registerFavoriteTools(server: McpServer, client: ResyClient): vo
     'resy_add_favorite',
     {
       description: 'Add a venue to the user\'s favorites by venue_id.',
-      inputSchema: { venue_id: z.number().int().positive() },
+      inputSchema: z.object({ venue_id: z.number().int().positive() }),
     },
     async ({ venue_id }) => {
       const body = new URLSearchParams({ venue_id: String(venue_id), favorite: '1' });
@@ -67,7 +67,7 @@ export function registerFavoriteTools(server: McpServer, client: ResyClient): vo
     'resy_remove_favorite',
     {
       description: 'Remove a venue from the user\'s favorites by venue_id.',
-      inputSchema: { venue_id: z.number().int().positive() },
+      inputSchema: z.object({ venue_id: z.number().int().positive() }),
     },
     async ({ venue_id }) => {
       const body = new URLSearchParams({ venue_id: String(venue_id), favorite: '0' });

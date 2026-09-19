@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { extractTime, schemaConfirm, toolAnnotations } from '@chrischall/mcp-utils';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import type { ResyClient } from '../client.js';
 import { minifiedResult } from '../mcp.js';
 import { findSlotsAtVenue, type FormattedSlot } from './venues.js';
@@ -243,9 +243,9 @@ export function registerReservationTools(
       description:
         "List the user's Resy reservations. Defaults to upcoming; pass scope=\"past\" or \"all\" to broaden. Each result includes the resy_token needed for cancellation, plus occasion/special_request/cancellability.",
       annotations: { readOnlyHint: true },
-      inputSchema: {
+      inputSchema: z.object({
         scope: z.enum(['upcoming', 'past', 'all']).optional(),
-      },
+      }),
     },
     async ({ scope }) => {
       const scopeResolved = scope ?? 'upcoming';
@@ -275,10 +275,10 @@ export function registerReservationTools(
         ...toolAnnotations({ title: 'Cancel a Resy reservation', readOnly: false }),
         destructiveHint: true,
       },
-      inputSchema: {
+      inputSchema: z.object({
         resy_token: z.string().describe('rr://... reservation identifier'),
         confirm: schemaConfirm,
-      },
+      }),
     },
     async ({ resy_token, confirm }) => {
       // Dry-run preview: look up (read-only) what would be cancelled and make
@@ -348,7 +348,7 @@ export function registerReservationTools(
         ...toolAnnotations({ title: 'Book a Resy reservation', readOnly: false }),
         destructiveHint: true,
       },
-      inputSchema: {
+      inputSchema: z.object({
         venue_id: z.number().int().positive(),
         date: z.string().describe('YYYY-MM-DD'),
         party_size: z.number().int().positive(),
@@ -369,7 +369,7 @@ export function registerReservationTools(
         lng: z.number().optional(),
         payment_method_id: z.number().int().positive().optional(),
         confirm: schemaConfirm,
-      },
+      }),
     },
     async ({
       venue_id,
