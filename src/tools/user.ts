@@ -1,4 +1,5 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
+import type { McpServer } from '@modelcontextprotocol/server';
 import type { ResyClient } from '../client.js';
 import { viewArg, viewResponse } from '../view.js';
 
@@ -28,9 +29,9 @@ interface ResyUser {
 export function registerUserTools(server: McpServer, client: ResyClient): void {
   server.registerTool('resy_get_profile', {
     description: "Get the authenticated Resy user's profile (name, email, phone, booking count, member-since date). Payment method IDs are not exposed.",
-    inputSchema: {
+    inputSchema: z.object({
       view: viewArg(),
-    },
+    }),
     annotations: { readOnlyHint: true },
   }, async ({ view }) => {
     // This is the ONE response in this server that carries a media URL, so it
@@ -51,9 +52,9 @@ export function registerUserTools(server: McpServer, client: ResyClient): void {
 
   server.registerTool('resy_list_payment_methods', {
     description: "List the user's saved payment methods on Resy. Returns id, brand, last four digits, expiry, and is_default. The id can be passed as payment_method_id to resy_book.",
-    inputSchema: {
+    inputSchema: z.object({
       view: viewArg(),
-    },
+    }),
     annotations: { readOnlyHint: true },
   }, async ({ view }) => {
     const data = await client.request<ResyUser>('GET', '/2/user');

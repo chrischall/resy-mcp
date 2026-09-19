@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { extractTime } from '@chrischall/mcp-utils';
 import { viewArg, viewResponse } from '../view.js';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import type { ResyClient } from '../client.js';
 import { minifiedResult } from '../mcp.js';
 
@@ -132,7 +132,7 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
       description:
         'Search Resy for restaurants with availability. Returns venues including any bookable slot tokens for the requested date + party size. Defaults to NYC geo if lat/lng omitted.',
       annotations: { readOnlyHint: true },
-      inputSchema: {
+      inputSchema: z.object({
         view: viewArg(),
         query: z.string().optional().describe('Venue name or keyword'),
         lat: z.number().optional().describe('Latitude (default 40.7128 NYC)'),
@@ -141,7 +141,7 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
         party_size: z.number().int().positive().describe('Number of guests'),
         limit: z.number().int().positive().optional().describe('Max venues (default 20)'),
         radius_meters: z.number().int().positive().optional().describe('Search radius in meters (default 16100)'),
-      },
+      }),
     },
     async ({ query, lat, lng, date, party_size, limit, radius_meters, view }) => {
       const struct = {
@@ -178,13 +178,13 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
       description:
         'List available reservation slots at a specific venue for a date + party size. Returns slot config_tokens suitable for booking. Tokens expire quickly; book soon after fetching.',
       annotations: { readOnlyHint: true },
-      inputSchema: {
+      inputSchema: z.object({
         venue_id: z.number().int().positive(),
         date: z.string().describe('YYYY-MM-DD'),
         party_size: z.number().int().positive(),
         lat: z.number().optional(),
         lng: z.number().optional(),
-      },
+      }),
     },
     async (args) => minifiedResult(await findSlotsAtVenue(client, args))
   );
@@ -194,9 +194,9 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
     {
       description: 'Get full details for a single Resy venue by id.',
       annotations: { readOnlyHint: true },
-      inputSchema: {
+      inputSchema: z.object({
         venue_id: z.number().int().positive(),
-      },
+      }),
     },
     async ({ venue_id }) => {
       const data = await client.request<{ venue?: RawVenue }>(
