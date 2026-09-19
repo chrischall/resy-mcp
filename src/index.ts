@@ -17,7 +17,7 @@ const client = new ResyClient();
 
 await runMcp<ResyClient>({
   name: 'resy-mcp',
-  version: '0.14.4', // x-release-please-version
+  version: '1.0.0', // x-release-please-version
   deps: client,
   banner:
     '[resy-mcp] This project was developed and is maintained by AI (Claude Opus 4.7). Use at your own discretion.',

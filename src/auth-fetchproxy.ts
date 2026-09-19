@@ -51,7 +51,7 @@ import { writeCapturedAuthorization } from './api-key-cache.js';
 import { apiKeyAuthorization } from './api-key.js';
 
 const PACKAGE_NAME = 'resy-mcp';
-const PACKAGE_VERSION = '0.14.4'; // x-release-please-version
+const PACKAGE_VERSION = '1.0.0'; // x-release-please-version
 
 /**
  * The fetchproxy concentrator port.

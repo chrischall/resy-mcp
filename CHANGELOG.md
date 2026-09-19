@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/chrischall/resy-mcp/compare/v0.14.4...v1.0.0) (2026-09-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **mcp:** migrate server to SDK v2 ([#222](https://github.com/chrischall/resy-mcp/issues/222))
+
+### Features
+
+* **mcp:** migrate server to SDK v2 ([#222](https://github.com/chrischall/resy-mcp/issues/222)) ([cbdbadb](https://github.com/chrischall/resy-mcp/commit/cbdbadb999236b1581f15b5f9da028ece15f660e))
+
 ## [0.14.4](https://github.com/chrischall/resy-mcp/compare/v0.14.3...v0.14.4) (2026-09-15)
 
 
