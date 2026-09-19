@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.1.0](https://github.com/chrischall/resy-mcp/compare/v1.0.0...v1.1.0) (2026-09-19)
+
+
+### Features
+
+* **deps:** take mcp-utils 1.0.0, restoring server/discover ([#227](https://github.com/chrischall/resy-mcp/issues/227)) ([bb9ac10](https://github.com/chrischall/resy-mcp/commit/bb9ac103074101d3a7d39474b19588c53340932f))
+
+
+### Bug Fixes
+
+* **deps:** raise the manifest node floor to match mcp-utils 1.0.0 ([#228](https://github.com/chrischall/resy-mcp/issues/228)) ([45e0745](https://github.com/chrischall/resy-mcp/commit/45e0745a66d1c79e9439d59c208263204f82ae9d))
+
+
+### Performance
+
+* **build:** drop the zod/v4 esbuild alias, halving the bundle ([#225](https://github.com/chrischall/resy-mcp/issues/225)) ([750a33c](https://github.com/chrischall/resy-mcp/commit/750a33c0871a36fbf8f5c93a06125a4280a835b7))
+
 ## [1.0.0](https://github.com/chrischall/resy-mcp/compare/v0.14.4...v1.0.0) (2026-09-19)
 
 
