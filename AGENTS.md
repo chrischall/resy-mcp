@@ -150,11 +150,11 @@ Write a failing test before implementation. Keep tool tests in `tests/tools/<nam
 ## Plugin / Marketplace
 
 ```
-.Codex-plugin/
-  plugin.json       # Codex plugin manifest (points at ./.mcp.json + ./skills/)
+.claude-plugin/
+  plugin.json       # Claude plugin manifest (points at ./.mcp.json + ./skills/)
   marketplace.json  # Marketplace catalog entry
 .mcp.json           # MCP client config for plugin installs (uses ${CLAUDE_PLUGIN_ROOT})
-manifest.json       # MCPB / Codex Desktop user-config + tool catalog
+manifest.json       # MCPB / Claude Desktop user-config + tool catalog
 server.json         # modelcontextprotocol/registry entry (OIDC publish)
 skills/resy/SKILL.md  # Codex skill — teaches Codex when/how to use the tools
 skills/resy-fpx/SKILL.md  # Codex skill — direct-API/fpx access patterns
@@ -167,7 +167,7 @@ When release-please cuts a release, the `publish` job in `.github/workflows/rele
 
 ## Publishing constraints
 
-The MCP Registry's [server.schema.json](https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json) caps `server.json`'s `description` at **100 characters**. Values over that fail `mcp-publisher publish` with HTTP 422 (`validation failed: expected length <= 100, location: body.description`). The other description fields (`manifest.json`, `.Codex-plugin/plugin.json`, `.Codex-plugin/marketplace.json`) have no published length constraint and can stay longer.
+The MCP Registry's [server.schema.json](https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json) caps `server.json`'s `description` at **100 characters**. Values over that fail `mcp-publisher publish` with HTTP 422 (`validation failed: expected length <= 100, location: body.description`). The other description fields (`manifest.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`) have no published length constraint and can stay longer.
 
 **That cap is on the TOP-LEVEL `description` only** — the 422 names `body.description`, and it is the server's one-line summary. A per-variable description under `packages[].environmentVariables[]` resolves to the schema's `Input.description`, which declares no `maxLength`: the registry currently serves published ones over 300 characters. Do not shorten a variable's help text to satisfy this rule — that trades real documentation for a constraint that does not apply to it.
 
@@ -187,8 +187,8 @@ Version appears in EIGHT places — all must match:
 4. `src/auth-fetchproxy.ts` → `PACKAGE_VERSION` constant (sent to fetchproxy as bridge identity)
 5. `manifest.json` → `"version"`
 6. `server.json` → `"version"` and `packages[].version` (two entries)
-7. `.Codex-plugin/plugin.json` → `"version"`
-8. `.Codex-plugin/marketplace.json` → `metadata.version` and `plugins[].version`
+7. `.claude-plugin/plugin.json` → `"version"`
+8. `.claude-plugin/marketplace.json` → `metadata.version` and `plugins[].version`
 
 ### Important
 
@@ -203,7 +203,7 @@ Commits land on `main` via PR. release-please (`.github/workflows/release-please
 
 Fleet policy — Conventional-Commit PR titles, labels, the auto-review /
 auto-merge ladder, auto-review follow-up issues, PR timing, and release PRs —
-lives in `~/.Codex/AGENTS.md`. Don't restate it here; the copies drifted.
+lives in `~/.codex/AGENTS.md`. Don't restate it here; the copies drifted.
 
 Shared technical conventions (publishing, bundling, versioning guards,
 write-verification, transport archetypes, testing traps) live in
