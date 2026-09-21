@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/chrischall/resy-mcp/compare/v1.1.0...v1.1.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* **tools:** annotate the favourite and notify pairs ([#231](https://github.com/chrischall/resy-mcp/issues/231)) ([967cce9](https://github.com/chrischall/resy-mcp/commit/967cce95ecd7878dc105da222649ee55f96c6284))
+
 ## [1.1.0](https://github.com/chrischall/resy-mcp/compare/v1.0.0...v1.1.0) (2026-09-19)
 
 
