@@ -54,6 +54,7 @@ export function registerFavoriteTools(server: McpServer, client: ResyClient): vo
     'resy_add_favorite',
     {
       description: 'Add a venue to the user\'s favorites by venue_id.',
+      annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: z.object({ venue_id: z.number().int().positive() }),
     },
     async ({ venue_id }) => {
@@ -67,6 +68,7 @@ export function registerFavoriteTools(server: McpServer, client: ResyClient): vo
     'resy_remove_favorite',
     {
       description: 'Remove a venue from the user\'s favorites by venue_id.',
+      annotations: { readOnlyHint: false, destructiveHint: false },
       inputSchema: z.object({ venue_id: z.number().int().positive() }),
     },
     async ({ venue_id }) => {

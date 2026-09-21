@@ -1,0 +1,224 @@
+# resy-mcp
+
+MCP server for Resy. Wraps Resy's private web-app API and exposes 14 `resy_*` tools over stdio: search venues, find slots, book/cancel reservations, manage favorites, and Priority Notify subscriptions.
+
+> Resy has no official public API. This server calls the same endpoints the resy.com web app calls. Use at your own discretion.
+
+## Auth (three paths, in priority order)
+
+The client picks an auth path on demand:
+
+1. **`RESY_AUTH_TOKEN`** — direct `x-resy-auth-token` override. Power users / CI. Skips everything else.
+2. **`RESY_EMAIL` + `RESY_PASSWORD`** — POSTs `/3/auth/password` (form-encoded), caches the returned `token`.
+3. **fetchproxy bootstrap (Pattern B)** — when neither of the above is set, calls `POST https://api.resy.com/3/auth/refresh` through the user's signed-in resy.com tab via `@fetchproxy/server`'s `FetchproxyServer.postJson`. The browser auto-attaches the HttpOnly session cookies; the response body returns `{ token: "..." }` which we use as both `x-resy-auth-token` and `x-resy-universal-auth`. After that, all API calls remain direct Node `fetch` — fetchproxy is invoked once per session bootstrap, never in the hot path. Opt-out with `RESY_DISABLE_FETCHPROXY=1`.
+
+Why Pattern B (one bootstrap call, then direct fetch) instead of Pattern A (every call through fetchproxy)? Resy's session lives in HttpOnly cookies (`localStorage` / `sessionStorage` / `IndexedDB` are auth-empty). The page's only authenticated endpoint that returns a usable token in its response body is `/3/auth/refresh` — so we bridge that one call and run everything else directly.
+
+## Commands
+
+```bash
+npm run build          # tsc → dist/ + esbuild bundle → dist/bundle.js
+npm test               # vitest, mocked fetch, no network
+npm run test:watch     # watch mode
+npm run test:coverage  # v8 coverage (text + html, no thresholds)
+npm run smoke          # live read-only probe of /2/user, /3/user/reservations,
+                       #   /3/user/favorites, /3/notify — needs real .env
+npx tsc --noEmit       # typecheck only
+```
+
+Run locally (requires built bundle and a populated `.env`):
+
+```bash
+node dist/bundle.js
+```
+
+## Tool naming
+
+All tools are prefixed `resy_` (14 total). The manifest's `tools[]` array in `manifest.json` is the canonical list.
+
+## Architecture
+
+```
+src/
+  index.ts              # MCP bootstrap — instantiates ResyClient, registers all
+                        #   tool groups, connects stdio transport
+  client.ts             # ResyClient: lazy auth (env-token | password | fetchproxy),
+                        #   token caching, 401/419/auth-500 → refresh+retry,
+                        #   429 backoff+retry, URLSearchParams vs JSON body
+  api-key.ts            # resolveApiKey()/apiKeyAuthorization(): the PUBLIC
+                        #   web-app key every api.resy.com call carries. Its own
+                        #   leaf module because client.ts imports
+                        #   auth-fetchproxy.ts and both need it — reaching back
+                        #   into client.ts would be a cycle.
+  auth-fetchproxy.ts    # mintTokenViaFetchproxy(): single POST /3/auth/refresh
+                        #   through @fetchproxy/server's FetchproxyServer.
+                        #   Pattern B — bootstraps a token then closes the
+                        #   bridge. Direct Node fetch handles the rest.
+  token-cache.ts        # createTokenCache(): the on-disk token cache
+                        #   ($MCP_DATA_DIR/.resy-mcp/token.json, 0600) over
+                        #   createFileStatePersistence + resolveStateFile.
+                        #   Returns null for RESY_AUTH_TOKEN (nothing to skip)
+                        #   and when the cache is off; bound to a salted digest
+                        #   of the credentials so rotating one discards it
+  mcp.ts                # re-exports textResult() from @chrischall/mcp-utils —
+                        #   wraps any JSON value as the single-text-block
+                        #   CallToolResult every tool returns
+  tools/
+    user.ts             # resy_get_profile, resy_list_payment_methods
+    venues.ts           # resy_search_venues, resy_find_slots, resy_get_venue
+                        #   + shared findSlotsAtVenue() helper used by resy_book
+    reservations.ts     # resy_list_reservations, resy_cancel, resy_book
+                        #   (composite: find → details → book)
+    notify.ts           # resy_list_notify, resy_add_notify, resy_remove_notify
+    favorites.ts        # resy_list_favorites, resy_add_favorite, resy_remove_favorite
+
+tests/                  # 1:1 mirror of src/, plus tests/helpers.ts in-memory
+                        #   MCP test harness. All tests mock ResyClient.request.
+scripts/smoke.ts        # live probe runner (read-only)
+```
+
+Each `tools/*.ts` file exports a `registerXxxTools(server, client)` function; `src/index.ts` invokes all of them.
+
+## Environment
+
+```
+# All env vars are optional. Pick one of the three auth paths (see above);
+# the client tries them in this priority order on first request.
+
+RESY_AUTH_TOKEN=<tk>          # Path 1 (override). x-resy-auth-token, verbatim.
+RESY_EMAIL=<addr>             # Path 2. Resy account email.
+RESY_PASSWORD=<pass>          # Path 2. Resy account password.
+RESY_DISABLE_FETCHPROXY=1     # Opt out of the fetchproxy fallback (Path 3).
+RESY_TOKEN_CACHE=false        # Opt out of the on-disk token cache (default on).
+RESY_TOKEN_FILE=<path>        # Override the cache path. Defaults to
+                              #   $MCP_DATA_DIR/.resy-mcp/token.json.
+RESY_CAPTURE_TIMEOUT=<secs>   # Seconds to wait for the page to make an API
+                              #   call the bridge can read the token off.
+                              #   Defaults to 30. The transport deadline is
+                              #   derived from this, never left at the library
+                              #   default — see auth-fetchproxy.ts.
+RESY_WS_PORT=<port>           # fetchproxy bridge port. Defaults to 37149, the
+                              #   port the WHOLE fleet shares (the Transporter
+                              #   extension dials it). Override for local dev,
+                              #   test isolation, or a hosted bridged
+                              #   registration — this is the variable mcp-host
+                              #   names in `bridgePortEnv`.
+RESY_API_KEY=<key>            # Optional. PINS the api key, beating both the
+                              #   captured one and the compiled-in default.
+                              #   Rotation no longer needs it: the key is
+                              #   captured off the live page and cached, so
+                              #   `RESY_API_KEY > captured > DEFAULT_API_KEY`.
+                              #   Set it to pin deliberately, not to recover.
+RESY_API_KEY_FILE=<path>      # Override the api-key cache path. Defaults to
+                              #   $MCP_DATA_DIR/.resy-mcp/api-key.json. Stores
+                              #   the BARE key, never the authorization header
+                              #   — see api-key-cache.ts for why that matters.
+```
+
+`src/client.ts` loads `.env` from `dirname(import.meta.url)/../.env` (i.e. the repo root next to `dist/`) via `dotenv` with `quiet: true`. Blank values, `undefined`, `null`, and unsubstituted `${FOO}` placeholders are treated as unset. The MCPB manifest / `.mcp.json` pass credentials through `env` instead.
+
+## Testing
+
+Tests live in `tests/` and mirror `src/` 1:1. Run with `npm test`. `tests/helpers.ts` provides an in-memory MCP harness for invoking registered tools without spawning a transport. `vitest.config.ts` enables v8 coverage (text + html) and enforces a RATCHET
+floor — thresholds set just under the current numbers rather than the fleet's
+100%, because several tool handlers have untested paths. Raise them as coverage
+improves; do not lower them. `tests/_setup.ts` forces the token cache off, pins
+its path into a temp dir, and fails the suite if anything reached the real
+`~/.resy-mcp`.
+
+Write a failing test before implementation. Keep tool tests in `tests/tools/<name>.test.ts` and mock `ResyClient.request`.
+
+## Conventions
+
+- All tools are `resy_*`-prefixed.
+- Tool return shape: `textResult(data)` (re-exported by `src/mcp.ts` from `@chrischall/mcp-utils`) → `{ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }`. Don't hand-roll the wrapper.
+- Read-only tools set `annotations: { readOnlyHint: true }`.
+- Form-encoded bodies use `URLSearchParams`; `ResyClient.request` detects the instance and sets `Content-Type: application/x-www-form-urlencoded` automatically. Otherwise it JSON-encodes.
+- Times are normalized to `HH:MM` at the MCP boundary even though Resy uses `HH:MM:SS` on the wire.
+
+## Resy API quirks (from live smoke)
+
+- `/3/notify` is **list-only**; POST returns 502. Add goes to `/2/notify`.
+- `/3/user/notify` returns HTML, not JSON — use `/3/notify`.
+- On `/2/notify`, the field is `num_seats`, **not** `party_size` (which `/3` reservation endpoints use).
+- Favorites has no DELETE — `POST /3/user/favorites` toggles via `favorite=1|0`.
+- `DELETE /2/notify` needs the **full** spec as query params (`notify_request_id`, `venue_id`, `day`, `num_seats`, `service_type_id`), not just the id. `resy_remove_notify` looks the spec up internally so callers only pass `notify_id`.
+- Resy's `scope` query param on `/3/user/reservations` is currently a no-op — all scopes return the same list. `resy_list_reservations` filters by `today` client-side.
+- Slot times come back without a timezone offset (restaurant-local); `extractHHMM` parses the string directly to avoid TZ-shifting via `new Date()`.
+- `resy_book` flow: `findSlotsAtVenue` → `GET /3/details?config_id=...` for the `book_token` → `POST /3/book` with `struct_payment_method`. Default payment method is resolved from `/2/user` if `payment_method_id` is omitted.
+
+## Plugin / Marketplace
+
+```
+.claude-plugin/
+  plugin.json       # Claude Code plugin manifest (points at ./.mcp.json + ./skills/)
+  marketplace.json  # Marketplace catalog entry
+.mcp.json           # MCP client config for plugin installs (uses ${CLAUDE_PLUGIN_ROOT})
+manifest.json       # MCPB / Claude Desktop user-config + tool catalog
+server.json         # modelcontextprotocol/registry entry (OIDC publish)
+skills/resy/SKILL.md  # Claude Code skill — teaches Claude when/how to use the tools
+skills/resy-fpx/SKILL.md  # Claude Code skill — direct-API/fpx access patterns
+docs/submissions/   # Manual-submission copy for mcpservers.org + clau.de
+```
+
+## Registry surface
+
+When release-please cuts a release, the `publish` job in `.github/workflows/release-please.yml` runs the `chrischall/workflows/.github/actions/mcp-publish` composite action, fanning out to: npm (with provenance), GitHub Releases (`.skill` + `.mcpb` artifacts), `modelcontextprotocol/registry` (OIDC), and ClawHub (only if `CLAWHUB_TOKEN` is set). PulseMCP auto-ingests from the MCP Registry weekly. Two registries need a one-time manual browser submission: `mcpservers.org/submit` and `clau.de/plugin-directory-submission` — see `docs/submissions/README.md`.
+
+## Publishing constraints
+
+The MCP Registry's [server.schema.json](https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json) caps `server.json`'s `description` at **100 characters**. Values over that fail `mcp-publisher publish` with HTTP 422 (`validation failed: expected length <= 100, location: body.description`). The other description fields (`manifest.json`, `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`) have no published length constraint and can stay longer.
+
+**That cap is on the TOP-LEVEL `description` only** — the 422 names `body.description`, and it is the server's one-line summary. A per-variable description under `packages[].environmentVariables[]` resolves to the schema's `Input.description`, which declares no `maxLength`: the registry currently serves published ones over 300 characters. Do not shorten a variable's help text to satisfy this rule — that trades real documentation for a constraint that does not apply to it.
+
+Sanity-check before committing a description change:
+
+```bash
+jq -r '.description | length' server.json
+```
+
+## Versioning
+
+Version appears in EIGHT places — all must match:
+
+1. `package.json` → `"version"`
+2. `package-lock.json` → `npm install --package-lock-only` after changing package.json (or `npm version` does it automatically)
+3. `src/index.ts` → `McpServer` constructor `version` field
+4. `src/auth-fetchproxy.ts` → `PACKAGE_VERSION` constant (sent to fetchproxy as bridge identity)
+5. `manifest.json` → `"version"`
+6. `server.json` → `"version"` and `packages[].version` (two entries)
+7. `.claude-plugin/plugin.json` → `"version"`
+8. `.claude-plugin/marketplace.json` → `metadata.version` and `plugins[].version`
+
+### Important
+
+Do NOT manually bump versions or create tags unless the user explicitly asks. Versioning is handled by **release-please** (`.github/workflows/release-please.yml`). `release-please-config.json` registers all of the files above as `extra-files`, so a single release PR bumps them in lockstep.
+
+### Release workflow
+
+Commits land on `main` via PR. release-please (`.github/workflows/release-please.yml`) opens or updates a `chore(main): release X.Y.Z` PR whenever Conventional-Commit messages (`feat:`, `fix:`, etc.) accumulate. Merging the release PR (arm `release-ready`) creates the tag and a GitHub Release; the `publish` job then packs the `.mcpb` bundle and `.skill` archive, publishes to npm with provenance, and pushes to the MCP Registry.
+
+<!-- pr-workflow:v3 -->
+## Pull requests & release notes
+
+Fleet policy — Conventional-Commit PR titles, labels, the auto-review /
+auto-merge ladder, auto-review follow-up issues, PR timing, and release PRs —
+lives in `~/.codex/AGENTS.md`. Don't restate it here; the copies drifted.
+
+Shared technical conventions (publishing, bundling, versioning guards,
+write-verification, transport archetypes, testing traps) live in
+[`chrischall/workflows`](https://github.com/chrischall/workflows):
+`docs/fleet-conventions.md`, plus `README.md` for the CI pipeline contract.
+
+## Gotchas
+
+- **ESM + NodeNext**: imports must use `.js` extensions even for `.ts` source files (e.g. `import { ResyClient } from './client.js'`).
+- **Bundle vs tsc output**: `dist/bundle.js` is the entry point everywhere (bin, manifest, .mcp.json). It is produced by `npm run bundle` (esbuild) — `tsc` alone is not enough. `npm run build` does both.
+- **stdio transport**: the server logs warnings/banners to **stderr** only — stdout is reserved for JSON-RPC. `dotenv` is loaded with `quiet: true` so it doesn't print to stdout either.
+- **Auth retry is narrow**: only `401`, `419`, or a `500` matching `\b(unauthorized|auth[_\s-]?token|authentication)\b` triggers a token refresh. A `500` mentioning `book_token expired` is a different failure and is *not* retried.
+- **Auth retry re-runs path selection.** On a 401, the client clears `this.token` and re-invokes the same three-path selector — so if the original token came from fetchproxy, the retry mints a fresh one via fetchproxy too. The selector doesn't pin to whichever path won the first time; an env-var change between calls would be picked up at retry time.
+- **429 retry**: single 2-second backoff, then surface the error.
+- **`resy_cancel` response is undocumented**: the tool returns `{ cancelled, raw }`. `cancelled` defaults to true on HTTP-OK absent explicit failure signals (`ok: false`, status matching `fail|error|denied`, or an `error*` field). Callers should inspect `raw` if they need certainty.
+- **Slot tokens expire fast** — `resy_find_slots` returns `config_token`s that must be exchanged for a `book_token` (via `GET /3/details`) and then booked promptly. `resy_book` does the whole chain in one call.
+- **Notify date window** ≈ 30 days. Resy rejects dates outside this window with an API error.
+- **No write tests against live API.** `npm run smoke` is read-only by design. Verify write paths (`resy_book`, `resy_cancel`, favorites toggles, notify add/remove) only via mocked unit tests unless you're knowingly mutating real account state.
