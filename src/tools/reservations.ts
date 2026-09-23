@@ -654,11 +654,14 @@ export function registerReservationTools(
               `NOT BOOKED — you already have ${existing.length === 1 ? 'a reservation' : `${existing.length} reservations`} ` +
               `at ${details.venue_name} on ${date} (see existing_reservations). If an earlier resy_book call ` +
               `failed or timed out, it most likely went through. To book another table anyway, re-run with ` +
-              `allow_duplicate: true and confirm: true.`,
+              `allow_duplicate: true, confirm: true, desired_time: "${chosen.time}", ` +
+              `slot_type: "${details.slot_type}" and terms_token: "${termsToken}".`,
             venue_name: details.venue_name,
             date,
             time: chosen.time,
             party_size,
+            slot_type: details.slot_type,
+            terms_token: termsToken,
             existing_reservations: existing,
           });
         }

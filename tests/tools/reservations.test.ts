@@ -836,6 +836,12 @@ describe('reservation tools (list/cancel)', () => {
       expect(parsed.existing_reservations).toHaveLength(1);
       expect(parsed.existing_reservations[0].resy_token).toBe('rr://earlier');
       expect(parsed.note).toMatch(/allow_duplicate: true/);
+      // The re-run must also carry the exact slot, or it only re-previews.
+      expect(parsed.slot_type).toBe('Dining Room');
+      expect(parsed.terms_token).toBe(DR_CONFIRM.terms_token);
+      expect(parsed.note).toContain('desired_time: "19:00"');
+      expect(parsed.note).toContain('slot_type: "Dining Room"');
+      expect(parsed.note).toContain(`terms_token: "${DR_CONFIRM.terms_token}"`);
     });
 
     it('confirm:true ignores reservations at other venues or on other dates', async () => {
