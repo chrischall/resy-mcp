@@ -145,7 +145,7 @@ Write a failing test before implementation. Keep tool tests in `tests/tools/<nam
 - `DELETE /2/notify` needs the **full** spec as query params (`notify_request_id`, `venue_id`, `day`, `num_seats`, `service_type_id`), not just the id. `resy_remove_notify` looks the spec up internally so callers only pass `notify_id`.
 - Resy's `scope` query param on `/3/user/reservations` is currently a no-op — all scopes return the same list. `resy_list_reservations` filters by `today` client-side.
 - Slot times come back without a timezone offset (restaurant-local); `extractHHMM` parses the string directly to avoid TZ-shifting via `new Date()`.
-- `resy_book` flow: `findSlotsAtVenue` → `GET /3/details?config_id=...` for the `book_token` → `POST /3/book` with `struct_payment_method`. Default payment method is resolved from `/2/user` if `payment_method_id` is omitted.
+- `resy_book` flow: `findSlotsAtVenue` → `GET /3/details?config_id=...` for the `book_token` → `POST /3/book` with `struct_payment_method`. Default payment method is resolved from `/2/user` if `payment_method_id` is omitted. A confirm books only the exact slot a preview showed: `desired_time` + `slot_type` (several seatings share a time, each with its own fees) + `terms_token` (`bookingTermsToken()`, a fingerprint of the slot type and the raw `/3/details` cancellation/payment blocks). Any mismatch re-previews instead of booking.
 
 ## Plugin / Marketplace
 

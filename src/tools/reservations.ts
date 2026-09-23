@@ -112,34 +112,88 @@ interface SlotSelection {
   isClosest: boolean;
 }
 
+/** Case- and whitespace-insensitive comparison of Resy seating types
+ *  ("Dining Room" vs "dining room"). */
+function sameSlotType(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
 /**
  * Select which slot `resy_book` would book — WITHOUT silently substituting a
- * different time for a requested one.
+ * different time, or a different seating type, for a requested one.
  *
- *  - No `desiredTime`      → first available slot (caller wants "any").
+ * Resy often lists several slots at the same time with different
+ * `config.type` values (Dining Room / Bar / Patio / Counter), each with its
+ * own fees, so when `slotType` is given only slots of that type are
+ * candidates (fleet-audit#225).
+ *
+ *  - No `desiredTime`      → first available candidate (caller wants "any").
  *  - Exact match found     → that slot.
  *  - Exact match missing:
- *      - `allowClosest`    → nearest-by-minute slot, flagged `isClosest`.
+ *      - `allowClosest`    → nearest-by-minute candidate, flagged `isClosest`.
  *      - otherwise         → `chosen: undefined` — the tool returns the
- *                            available times and asks the caller to pick,
- *                            rather than booking a time they didn't ask for.
- *
- * `slots` must be non-empty.
+ *                            available slots and asks the caller to pick,
+ *                            rather than booking a slot they didn't ask for.
  */
 function selectSlot(
   slots: FormattedSlot[],
   desiredTime: string | undefined,
-  allowClosest: boolean
+  allowClosest: boolean,
+  slotType?: string
 ): SlotSelection {
-  if (!desiredTime) return { chosen: slots[0], isClosest: false };
-  const exact = slots.find((s) => s.time === desiredTime);
+  const candidates =
+    slotType === undefined ? slots : slots.filter((s) => sameSlotType(s.type, slotType));
+  if (candidates.length === 0) return { chosen: undefined, isClosest: false };
+  if (!desiredTime) return { chosen: candidates[0], isClosest: false };
+  const exact = candidates.find((s) => s.time === desiredTime);
   if (exact) return { chosen: exact, isClosest: false };
   if (!allowClosest) return { chosen: undefined, isClosest: false };
   const desired = toMinutes(desiredTime);
-  const closest = slots.reduce((best, s) =>
+  const closest = candidates.reduce((best, s) =>
     Math.abs(toMinutes(s.time) - desired) < Math.abs(toMinutes(best.time) - desired) ? s : best
   );
   return { chosen: closest, isClosest: true };
+}
+
+/** JSON with object keys sorted at every level, so the same terms always
+ *  serialise identically regardless of the order Resy sends keys in. */
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    return `{${Object.keys(obj)
+      .sort()
+      .filter((k) => obj[k] !== undefined)
+      .map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+/**
+ * A short fingerprint of the terms a booking commits the card to: the seating
+ * type plus the raw cancellation and payment blocks from GET /3/details. The
+ * preview returns it; a confirm must feed it back, and books only when the
+ * freshly fetched slot still has the same fingerprint — so a fee added (or a
+ * different seating substituted) between preview and confirm re-previews
+ * instead of booking (fleet-audit#225/#226).
+ *
+ * Change detection, not security: a 64-bit FNV-1a over the stable JSON, so it
+ * runs anywhere (Node or a Worker) without a crypto import.
+ */
+export function bookingTermsToken(
+  slotType: string,
+  cancellation: unknown,
+  payment: unknown
+): string {
+  const input = stableStringify({ slot_type: slotType, cancellation: cancellation ?? null, payment: payment ?? null });
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  for (const byte of new TextEncoder().encode(input)) {
+    hash = ((hash ^ BigInt(byte)) * prime) & mask;
+  }
+  return hash.toString(16).padStart(16, '0');
 }
 
 /**
@@ -397,8 +451,12 @@ export function registerReservationTools(
         'Pass desired_time (HH:MM, 24-hour) to target a specific slot. If your exact desired_time is not ' +
         'available the tool does NOT auto-book a different time — it returns the available times so you can pick, ' +
         'unless you pass allow_closest_time:true (which previews the nearest slot). Omit desired_time to preview ' +
-        'the first available slot. confirm:true books ONLY an exact desired_time: to book a previewed slot, pass ' +
-        "the preview's time as desired_time with confirm:true (without allow_closest_time). " +
+        'the first available slot. Resy can list several slots at one time with different seating types ' +
+        '(Dining Room / Bar / Patio) and different fees; pass slot_type to target one. ' +
+        "confirm:true books ONLY the exact slot a preview showed: pass the preview's time as desired_time, its " +
+        'slot_type and its terms_token with confirm:true (without allow_closest_time). If that slot is gone, or ' +
+        'its seating type or cancellation/payment terms changed since the preview, nothing is booked and a ' +
+        'fresh preview is returned. ' +
         'Before booking, a confirm checks your existing reservations and refuses if you already hold one at ' +
         'this venue on this date (e.g. an earlier call that timed out but went through); pass ' +
         'allow_duplicate:true to book another anyway. ' +
@@ -424,6 +482,23 @@ export function registerReservationTools(
               'of returning the available times to pick from. It never books on its own: confirm with that ' +
               "slot's time as desired_time. Default false."
           ),
+        slot_type: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "Seating type (e.g. 'Dining Room', 'Bar', 'Patio'), matched case-insensitively. Only slots of this " +
+              "type are considered. Required with confirm:true — pass the preview's slot_type."
+          ),
+        terms_token: z
+          .string()
+          .min(1)
+          .optional()
+          .describe(
+            "The preview's terms_token, required with confirm:true. It fingerprints the slot's seating type and " +
+              'cancellation/payment terms; if they changed since the preview, the confirm re-previews instead ' +
+              'of booking.'
+          ),
         lat: z.number().optional(),
         lng: z.number().optional(),
         payment_method_id: z.number().int().positive().optional(),
@@ -444,6 +519,8 @@ export function registerReservationTools(
       party_size,
       desired_time,
       allow_closest_time,
+      slot_type,
+      terms_token,
       lat,
       lng,
       payment_method_id,
@@ -459,23 +536,30 @@ export function registerReservationTools(
       }
 
       // 2. pick a slot — WITHOUT silently substituting a requested time.
-      const selection = selectSlot(slots, desired_time, allow_closest_time === true);
+      const availableSlots = slots.map((s) => ({ time: s.time, slot_type: s.type }));
+      const selection = selectSlot(slots, desired_time, allow_closest_time === true, slot_type);
       if (!selection.chosen) {
-        // Exact desired_time requested, not available, closest not allowed.
-        // Book nothing; hand back the options so the caller makes the choice.
+        // The requested slot (time, and seating type when given) is not
+        // available and closest was not allowed. Book nothing — in particular
+        // not a same-time slot of another type — and hand back the options so
+        // the caller makes the choice.
+        const wanted = [desired_time, slot_type && `'${slot_type}'`].filter(Boolean).join(' ');
         return minifiedResult({
           preview: true,
           action: 'book',
           booked: false,
           note:
-            `Requested time ${desired_time} is not available at this venue on ${date}. Nothing was booked. ` +
-            `Re-run with a desired_time from available_times, or pass allow_closest_time: true to book the ` +
-            `nearest slot — then add confirm: true to book.`,
+            `Requested slot ${wanted} is not available at this venue on ${date}. Nothing was booked. ` +
+            `Re-run with a desired_time and slot_type from available_slots` +
+            (desired_time ? `, or pass allow_closest_time: true to preview the nearest slot` : '') +
+            ` — then confirm with the new preview's slot_type and terms_token.`,
           venue_id,
           date,
           party_size,
-          requested_time: desired_time,
+          requested_time: desired_time ?? null,
+          requested_slot_type: slot_type ?? null,
           available_times: slots.map((s) => s.time),
+          available_slots: availableSlots,
         });
       }
       const chosen = selection.chosen;
@@ -502,11 +586,21 @@ export function registerReservationTools(
       //    slots, so "first available" or "closest" can resolve to a DIFFERENT
       //    slot at confirm time than the one the user approved (someone takes
       //    the 17:00 table; the confirm quietly books 17:45). A confirm
-      //    therefore books only an exact desired_time — i.e. the preview's
-      //    `time` fed back — and anything else is refused with a fresh preview
-      //    (fleet-audit#225).
+      //    therefore books only the exact slot the preview showed: its `time`
+      //    AND `slot_type` fed back (several seatings share a time), with a
+      //    `terms_token` proving the cancellation/payment terms are the ones
+      //    the user saw. Anything else is refused with a fresh preview
+      //    (fleet-audit#225, #226).
+      const termsToken = bookingTermsToken(details.slot_type, details.cancellation, details.payment);
+      const termsChanged = terms_token !== undefined && terms_token !== termsToken;
       const confirmable =
-        confirm === true && desired_time !== undefined && !selection.isClosest;
+        confirm === true &&
+        desired_time !== undefined &&
+        !selection.isClosest &&
+        slot_type !== undefined &&
+        sameSlotType(details.slot_type, slot_type) &&
+        terms_token !== undefined &&
+        !termsChanged;
       if (!confirmable) {
         const refused = confirm === true;
         return minifiedResult({
@@ -515,10 +609,14 @@ export function registerReservationTools(
           booked: false,
           note:
             (refused
-              ? `NOT BOOKED — confirm: true books only an exact desired_time, so the slot booked is ` +
-                `always the one you approved. `
+              ? termsChanged
+                ? `NOT BOOKED — this slot's seating type or cancellation/payment terms changed since your ` +
+                  `preview. Review the terms below before confirming. `
+                : `NOT BOOKED — confirm: true books only the exact slot a preview showed (desired_time, ` +
+                  `slot_type and terms_token), so the slot booked is always the one you approved. `
               : `DRY RUN — nothing was booked. `) +
-            `To book this slot, re-run with confirm: true and desired_time: "${chosen.time}".` +
+            `To book this slot, re-run with confirm: true, desired_time: "${chosen.time}", ` +
+            `slot_type: "${details.slot_type}" and terms_token: "${termsToken}".` +
             (selection.isClosest
               ? ` NOTE: your requested time ${desired_time} was unavailable, so the CLOSEST slot (${chosen.time}) was selected.`
               : '') +
@@ -530,8 +628,10 @@ export function registerReservationTools(
           requested_time: desired_time ?? null,
           is_closest_match: selection.isClosest,
           available_times: slots.map((s) => s.time),
+          available_slots: availableSlots,
           party_size,
           slot_type: details.slot_type,
+          terms_token: termsToken,
           payment_method: { id: payment.id, ...(payment.last4 ? { last4: payment.last4 } : {}) },
           // The terms the card is committed to, straight from /3/details —
           // null means Resy stated none, not that there are none.
