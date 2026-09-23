@@ -244,6 +244,16 @@ describe('mintTokenViaFetchproxy', () => {
       expect(opts).toMatchObject({ subdomain: 'api', viaTab: 'https://resy.com/', inPage: true });
     });
 
+    it('does not opt the refresh POST into retryOnTimeout', async () => {
+      // /3/auth/refresh mints a session token and may rotate the cookie it
+      // reads, so it is not provably read-only: @fetchproxy/server >= 3.2
+      // must not re-send it after a transport timeout.
+      mockPostJson.mockResolvedValueOnce({ token: 'tk' });
+      await mintTokenViaFetchproxy();
+      const [, , opts] = mockPostJson.mock.calls[0] as [string, unknown, Record<string, unknown>];
+      expect(opts).not.toHaveProperty('retryOnTimeout');
+    });
+
     it('still prefers capture — inPage is the fallback, not the default', async () => {
       mockCapture.mockResolvedValueOnce('captured-tk-aaaaaaaaaaaaaaaaaaaaaa');
       await mintTokenViaFetchproxy();
