@@ -694,3 +694,71 @@ describe('ResyClient.describeCredential', () => {
     expect(JSON.stringify(new ResyClient().describeCredential())).not.toContain('SUPER_SECRET_RESY_TOKEN_VALUE');
   });
 });
+
+/**
+ * fleet-audit#227: every Resy call used to be a bare fetch() — no timeout and
+ * blind to the MCP caller's cancellation. A stalled POST /3/book could outlive
+ * the client's tool-call timeout, the model saw a failure while the booking
+ * completed server-side, and a retry booked twice.
+ */
+describe('ResyClient — request timeout and caller cancellation', () => {
+  /** A fetch that never answers on its own — it settles only when aborted. */
+  function hangingFetch() {
+    return vi.fn((_url: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        const signal = init.signal;
+        if (!signal) return; // no signal → hang forever (the bug)
+        if (signal.aborted) return reject(signal.reason); // as real fetch does
+        signal.addEventListener('abort', () => reject(signal.reason));
+      })
+    );
+  }
+
+  beforeEach(() => {
+    process.env.RESY_AUTH_TOKEN = 'tk';
+  });
+  afterEach(() => {
+    delete process.env.RESY_AUTH_TOKEN;
+    vi.unstubAllGlobals();
+  });
+
+  it('gives every request an AbortSignal', async () => {
+    const mockFetch = vi.fn(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', mockFetch);
+    await new ResyClient().request('GET', '/2/user');
+    const [, init] = mockFetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('times out a stalled read with a plain timeout error', async () => {
+    vi.stubGlobal('fetch', hangingFetch());
+    const err = await new ResyClient({ requestTimeoutMs: 20 })
+      .request('GET', '/2/user')
+      .catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toMatch(/timed out.*GET \/2\/user/);
+    expect((err as Error).message).not.toMatch(/UNKNOWN/);
+  });
+
+  it('times out a stalled write and says its outcome is UNKNOWN (do not blindly retry)', async () => {
+    vi.stubGlobal('fetch', hangingFetch());
+    const err = await new ResyClient({ requestTimeoutMs: 20 })
+      .request('POST', '/3/book', new URLSearchParams({ book_token: 'BK' }))
+      .catch((e: Error) => e);
+    expect((err as Error).message).toMatch(/timed out.*POST \/3\/book/);
+    expect((err as Error).message).toMatch(/outcome is UNKNOWN/);
+    expect((err as Error).message).toMatch(/resy_list_reservations/);
+  });
+
+  it("aborts the in-flight request when the MCP caller cancels the tool call", async () => {
+    const { withCallSignal } = await import('@chrischall/mcp-utils');
+    vi.stubGlobal('fetch', hangingFetch());
+    const caller = new AbortController();
+    const client = new ResyClient({ requestTimeoutMs: 60_000 });
+    const pending = withCallSignal(caller.signal, () => client.request('POST', '/3/book', new URLSearchParams()));
+    caller.abort(new Error('client went away'));
+    const err = await pending.catch((e: Error) => e);
+    expect((err as Error).message).toMatch(/cancelled.*POST \/3\/book/);
+    expect((err as Error).message).toMatch(/outcome is UNKNOWN/);
+  });
+});

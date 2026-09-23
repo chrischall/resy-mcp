@@ -83,7 +83,7 @@ Or place `.env` in the project directory with `RESY_EMAIL=` and `RESY_PASSWORD=`
 ### Reservations
 | Tool | Description |
 |------|-------------|
-| `resy_book(venue_id, date, party_size, desired_time?, allow_closest_time?, lat?, lng?, payment_method_id?, confirm?)` | Composite: find fresh slot → details → book. Without `confirm: true` it only previews. `desired_time` is "HH:MM" (24h); an unavailable time returns the available times unless `allow_closest_time: true` previews the nearest. `confirm: true` books ONLY an exact `desired_time` — pass the preview's `time` back — so the slot booked is always the one approved. Uses default payment method unless `payment_method_id` is supplied. |
+| `resy_book(venue_id, date, party_size, desired_time?, allow_closest_time?, lat?, lng?, payment_method_id?, allow_duplicate?, confirm?)` | Composite: find fresh slot → details → book. Without `confirm: true` it only previews. `desired_time` is "HH:MM" (24h); an unavailable time returns the available times unless `allow_closest_time: true` previews the nearest. `confirm: true` books ONLY an exact `desired_time` — pass the preview's `time` back — so the slot booked is always the one approved. A confirm refuses if you already hold a reservation at that venue that date (e.g. an earlier timed-out call that went through) unless `allow_duplicate: true`. Uses default payment method unless `payment_method_id` is supplied. |
 | `resy_list_reservations(scope?)` | List reservations. `scope`: `upcoming` (default), `past`, or `all`. Each result includes the `resy_token` needed for cancellation. |
 | `resy_cancel(resy_token)` | Cancel by `resy_token` (`rr://…`). Inspects the response body to set `cancelled: true/false` honestly. |
 

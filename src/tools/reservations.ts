@@ -265,6 +265,25 @@ async function findReservationByToken(
   return match ? formatReservation(match, venues) : undefined;
 }
 
+/**
+ * The user's reservations at `venueId` on `date` — the duplicate check a
+ * `resy_book` confirm runs before POST /3/book. A booking POST that outlives
+ * the MCP client's tool-call timeout reports failure to the model while it
+ * completes on Resy's side; the natural retry would book a second table
+ * (fleet-audit#227). Read-only.
+ */
+async function findReservationsAtVenueOnDate(
+  client: ResyClient,
+  venueId: number,
+  date: string
+): Promise<Array<ReturnType<typeof formatReservation>>> {
+  const data = await client.request<ReservationsResponse>('GET', '/3/user/reservations');
+  const venues = data.venues ?? {};
+  return (data.reservations ?? [])
+    .filter((r) => r.venue?.id === venueId && r.day === date)
+    .map((r) => formatReservation(r, venues));
+}
+
 // ─── tool registrations ───────────────────────────────────────────────
 
 export function registerReservationTools(
@@ -380,6 +399,9 @@ export function registerReservationTools(
         'unless you pass allow_closest_time:true (which previews the nearest slot). Omit desired_time to preview ' +
         'the first available slot. confirm:true books ONLY an exact desired_time: to book a previewed slot, pass ' +
         "the preview's time as desired_time with confirm:true (without allow_closest_time). " +
+        'Before booking, a confirm checks your existing reservations and refuses if you already hold one at ' +
+        'this venue on this date (e.g. an earlier call that timed out but went through); pass ' +
+        'allow_duplicate:true to book another anyway. ' +
         "Uses the user's default payment method unless payment_method_id is supplied.",
       annotations: {
         ...toolAnnotations({ title: 'Book a Resy reservation', readOnly: false }),
@@ -405,6 +427,14 @@ export function registerReservationTools(
         lat: z.number().optional(),
         lng: z.number().optional(),
         payment_method_id: z.number().int().positive().optional(),
+        allow_duplicate: z
+          .boolean()
+          .optional()
+          .describe(
+            'When true, book even if you already hold a reservation at this venue on this date. Default ' +
+              'false: a confirm refuses and lists the existing reservation, so a retry after a timed-out ' +
+              'booking cannot book twice.'
+          ),
         confirm: schemaConfirm,
       }),
     },
@@ -417,6 +447,7 @@ export function registerReservationTools(
       lat,
       lng,
       payment_method_id,
+      allow_duplicate,
       confirm,
     }) => {
       // 1. find fresh slots (via shared helper — read-only)
@@ -509,7 +540,31 @@ export function registerReservationTools(
         });
       }
 
-      // 6. book (the only mutating call)
+      // 6. duplicate guard (read-only): refuse if the user already holds a
+      //    reservation here that day — most likely an earlier resy_book whose
+      //    response was lost to a timeout but which Resy completed.
+      if (allow_duplicate !== true) {
+        const existing = await findReservationsAtVenueOnDate(client, venue_id, date);
+        if (existing.length > 0) {
+          return minifiedResult({
+            preview: true,
+            action: 'book',
+            booked: false,
+            note:
+              `NOT BOOKED — you already have ${existing.length === 1 ? 'a reservation' : `${existing.length} reservations`} ` +
+              `at ${details.venue_name} on ${date} (see existing_reservations). If an earlier resy_book call ` +
+              `failed or timed out, it most likely went through. To book another table anyway, re-run with ` +
+              `allow_duplicate: true and confirm: true.`,
+            venue_name: details.venue_name,
+            date,
+            time: chosen.time,
+            party_size,
+            existing_reservations: existing,
+          });
+        }
+      }
+
+      // 7. book (the only mutating call)
       const bookBody = new URLSearchParams({
         book_token: details.book_token,
         struct_payment_method: JSON.stringify({ id: payment.id }),
