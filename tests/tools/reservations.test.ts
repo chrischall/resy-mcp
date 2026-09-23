@@ -606,6 +606,51 @@ describe('reservation tools (list/cancel)', () => {
       expect(parsed.note).toMatch(/CLOSEST slot \(19:30\)/);
     });
 
+    // fleet-audit#226: /3/details carries the slot's cancellation and payment
+    // terms (no-show fee, deposit, cut-off). The preview used to drop them, so
+    // confirm:true could commit the card to a fee the user never saw.
+    it('preview surfaces the slot\'s cancellation fee and payment terms from /3/details', async () => {
+      const cancellation = {
+        fee: { amount: 50, date_cut_off: '2026-04-30T19:00:00Z', display: { amount: '$50 per person' } },
+        display: { policy: ['Cancel by 7pm the day before to avoid a $50 per person fee.'] },
+      };
+      const payment = { amounts: { reservation_charge: 0, total: 0 }, config: { type: 'free' } };
+      mockRequest
+        .mockResolvedValueOnce({
+          results: { venues: [{ slots: [{ config: { token: 'cfg', type: 'DR' }, date: { start: '2026-05-01 19:00:00' } }] }] },
+        })
+        .mockResolvedValueOnce({
+          book_token: { value: 'BK' },
+          venue: { name: 'Carbone', venue_url_slug: 'carbone', location: { url_slug: 'new-york-ny' } },
+          config: { type: 'DR' },
+          cancellation,
+          payment,
+        })
+        .mockResolvedValueOnce({ payment_methods: [{ id: 55, is_default: true }] });
+
+      const result = await harness.callTool('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00',
+      });
+
+      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(false);
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed.cancellation_policy).toEqual(cancellation);
+      expect(parsed.payment_terms).toEqual(payment);
+      expect(parsed.note).toMatch(/no-show fee of 50/i);
+      expect(parsed.note).toMatch(/2026-04-30T19:00:00Z/);
+    });
+
+    it('preview says the terms are unknown when /3/details returns none', async () => {
+      queueBookMocks({ slots: [{ token: 'cfg-7pm', time: '19:00' }] });
+      const result = await harness.callTool('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00',
+      });
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed.cancellation_policy).toBeNull();
+      expect(parsed.payment_terms).toBeNull();
+      expect(parsed.note).not.toMatch(/cancellation fee/i);
+    });
+
     it('preview shows only the payment id when the card exposes no last-4', async () => {
       queueBookMocks({
         slots: [{ token: 'cfg-7pm', time: '19:00' }],

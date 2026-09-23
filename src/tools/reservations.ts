@@ -142,11 +142,26 @@ function selectSlot(
   return { chosen: closest, isClosest: true };
 }
 
+/**
+ * The slot's cancellation block from GET /3/details. Only `fee` is read
+ * field-by-field (to phrase the preview note); the whole block is passed
+ * through raw, because its shape is undocumented and a partial read is how
+ * the terms went missing in the first place (fleet-audit#226).
+ */
+interface DetailsCancellation {
+  fee?: { amount?: number; applies?: boolean; date_cut_off?: string };
+  [key: string]: unknown;
+}
+
 interface BookingDetails {
   book_token: string;
   venue_name: string;
   venue_url: string;
   slot_type: string;
+  /** Raw `cancellation` block (no-show/cancel fee, cut-off, policy text), or null when absent. */
+  cancellation: DetailsCancellation | null;
+  /** Raw `payment` block (amounts, deposit, config.type), or null when absent. */
+  payment: Record<string, unknown> | null;
 }
 
 async function getBookingDetails(
@@ -162,6 +177,8 @@ async function getBookingDetails(
     book_token?: { value?: string };
     venue?: { name?: string; venue_url_slug?: string; location?: { url_slug?: string } };
     config?: { type?: string };
+    cancellation?: DetailsCancellation;
+    payment?: Record<string, unknown>;
   }>('GET', `/3/details?${params.toString()}`);
 
   const token = details.book_token?.value;
@@ -176,7 +193,20 @@ async function getBookingDetails(
       ? `https://resy.com/cities/${citySlug}/${venueSlug}`
       : 'https://resy.com',
     slot_type: details.config?.type ?? args.slot_type_fallback,
+    cancellation: details.cancellation ?? null,
+    payment: details.payment ?? null,
   };
+}
+
+/** A one-line fee warning for the preview note, or '' when no fee is stated. */
+function cancellationFeeNote(c: DetailsCancellation | null): string {
+  const fee = c?.fee;
+  if (!fee || fee.applies === false || typeof fee.amount !== 'number' || fee.amount <= 0) return '';
+  return (
+    ` A cancellation/no-show fee of ${fee.amount} applies` +
+    (fee.date_cut_off ? ` if cancelled after ${fee.date_cut_off}` : '') +
+    ' — see cancellation_policy.'
+  );
 }
 
 /** A resolved payment method: always an id, plus the last-4 when Resy exposes
@@ -343,7 +373,8 @@ export function registerReservationTools(
       description:
         "Book a reservation. Composite tool: internally runs find-slots → get booking details → book. " +
         'Confirm-gated: without confirm:true this returns a dry-run preview (venue, date, party size, the exact ' +
-        'slot time that would be booked, and the payment card last-4) and books nothing. ' +
+        'slot time that would be booked, the payment card last-4, and the slot\'s cancellation_policy / ' +
+        'payment_terms — any no-show fee or deposit) and books nothing. ' +
         'Pass desired_time (HH:MM, 24-hour) to target a specific slot. If your exact desired_time is not ' +
         'available the tool does NOT auto-book a different time — it returns the available times so you can pick, ' +
         'unless you pass allow_closest_time:true (which previews the nearest slot). Omit desired_time to preview ' +
@@ -459,7 +490,8 @@ export function registerReservationTools(
             `To book this slot, re-run with confirm: true and desired_time: "${chosen.time}".` +
             (selection.isClosest
               ? ` NOTE: your requested time ${desired_time} was unavailable, so the CLOSEST slot (${chosen.time}) was selected.`
-              : ''),
+              : '') +
+            cancellationFeeNote(details.cancellation),
           venue_name: details.venue_name,
           venue_url: details.venue_url,
           date,
@@ -470,6 +502,10 @@ export function registerReservationTools(
           party_size,
           slot_type: details.slot_type,
           payment_method: { id: payment.id, ...(payment.last4 ? { last4: payment.last4 } : {}) },
+          // The terms the card is committed to, straight from /3/details —
+          // null means Resy stated none, not that there are none.
+          cancellation_policy: details.cancellation,
+          payment_terms: details.payment,
         });
       }
 
