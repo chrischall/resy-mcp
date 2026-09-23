@@ -2,7 +2,13 @@ import { dirname, join } from 'path';
 import { createTokenCache, reportCacheWriteFailure } from './token-cache.js';
 import { resolveApiKey } from './api-key.js';
 import { fileURLToPath } from 'url';
-import { readEnvVar, loadDotenvSafely, parseBoolEnv, truncateErrorMessage } from '@chrischall/mcp-utils';
+import {
+  readEnvVar,
+  loadDotenvSafely,
+  parseBoolEnv,
+  truncateErrorMessage,
+  withAmbientCancellation,
+} from '@chrischall/mcp-utils';
 import { TokenManager } from '@chrischall/mcp-utils/session';
 import { mintTokenViaFetchproxy } from './auth-fetchproxy.js';
 
@@ -51,6 +57,21 @@ const SPOOF_HEADERS = {
   Accept: 'application/json, text/plain, */*',
 } as const;
 
+/**
+ * Per-attempt deadline for one api.resy.com round trip (headers AND body).
+ * Every call used to be a bare fetch(): a stalled socket hung the tool call
+ * forever, and a slow POST /3/book could outlive the MCP client's own
+ * tool-call timeout — the model saw a failure, the booking completed on
+ * Resy's side, and a retry booked twice (fleet-audit#227). Comfortably above
+ * a slow-but-healthy Resy response, below the ~60s client timeouts.
+ */
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
+export interface ResyClientOptions {
+  /** Override the per-request deadline. Tests use a short one. */
+  requestTimeoutMs?: number;
+}
+
 export type ResyBody =
   | undefined
   | Record<string, unknown>
@@ -59,8 +80,10 @@ export type ResyBody =
 export class ResyClient {
   private readonly apiKey: string;
   private readonly tokens: TokenManager;
+  private readonly requestTimeoutMs: number;
 
-  constructor() {
+  constructor(options: ResyClientOptions = {}) {
+    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.apiKey = resolveApiKey();
     // Race-safe token lifecycle from the shared session kit. The refresh
     // callback runs resy's three-path mint; single-flight + the usedToken
@@ -87,6 +110,40 @@ export class ResyClient {
       // re-mint-on-revoked recovery would just repeat the call that failed.
       isRefreshRevoked: () => false,
     });
+  }
+
+  /**
+   * One bounded round trip: fetch + read the body under a per-attempt timeout
+   * combined with the MCP caller's cancellation (ambient, installed per tool
+   * call by mcp-utils' runMcp). An abort surfaces as a plain Error naming the
+   * call; for anything but a GET it also says the outcome is UNKNOWN, because
+   * Resy may already have acted on it — the model must check before retrying
+   * rather than book twice.
+   */
+  private async timedFetch(
+    method: string,
+    path: string,
+    url: string,
+    init: RequestInit
+  ): Promise<{ res: Response; text: string }> {
+    const timeout = AbortSignal.timeout(this.requestTimeoutMs);
+    const signal = withAmbientCancellation(timeout) ?? timeout;
+    try {
+      const res = await fetch(url, { ...init, signal });
+      const text = await res.text();
+      return { res, text };
+    } catch (err) {
+      if (!signal.aborted) throw err;
+      const what = timeout.aborted
+        ? `Resy request timed out after ${Math.round(this.requestTimeoutMs / 1000)}s for ${method} ${path}`
+        : `Resy request cancelled by the caller for ${method} ${path}`;
+      const unknown =
+        method.toUpperCase() === 'GET'
+          ? ''
+          : ' — the outcome is UNKNOWN: Resy may already have completed it. Check its effect ' +
+            '(e.g. resy_list_reservations after a booking or cancel) before retrying.';
+      throw new Error(what + unknown, { cause: err });
+    }
   }
 
   async request<T>(method: string, path: string, body?: ResyBody): Promise<T> {
@@ -118,8 +175,10 @@ export class ResyClient {
     // we normalize them to a synthetic 401 to drive the same one-shot replay.
     let captured: { text: string; status: number; statusText: string; ok: boolean } | null = null;
     await this.tokens.withAuth(async (token) => {
-      const res = await fetch(`${BASE_URL}${path}`, { ...init, headers: buildHeaders(token) });
-      const text = await res.text();
+      const { res, text } = await this.timedFetch(method, path, `${BASE_URL}${path}`, {
+        ...init,
+        headers: buildHeaders(token),
+      });
       captured = { text, status: res.status, statusText: res.statusText, ok: res.ok };
       // Narrow: match only auth-scoped phrases, not any mention of "token"
       // (Resy occasionally says things like "book_token expired" which is a
@@ -165,8 +224,10 @@ export class ResyClient {
     buildHeaders: (token: string) => Record<string, string>
   ): Promise<T> {
     const token = await this.tokens.getAccessToken();
-    const res = await fetch(`${BASE_URL}${path}`, { ...init, headers: buildHeaders(token) });
-    const text = await res.text();
+    const { res, text } = await this.timedFetch(method, path, `${BASE_URL}${path}`, {
+      ...init,
+      headers: buildHeaders(token),
+    });
 
     if (res.status === 429) {
       throw new Error('Rate limited by Resy API');
@@ -263,7 +324,7 @@ export class ResyClient {
     const email = readVar('RESY_EMAIL')!;
     const password = readVar('RESY_PASSWORD')!;
 
-    const response = await fetch(`${BASE_URL}/3/auth/password`, {
+    const { res: response, text } = await this.timedFetch('POST', '/3/auth/password', `${BASE_URL}/3/auth/password`, {
       method: 'POST',
       headers: {
         Authorization: `ResyAPI api_key="${this.apiKey}"`,
@@ -273,7 +334,6 @@ export class ResyClient {
       body: new URLSearchParams({ email, password }).toString(),
     });
 
-    const text = await response.text();
     // Login-failure bodies are untrusted upstream text and may echo
     // credentials/tokens — redact + truncate before they can reach a tool result.
     if (!response.ok) {

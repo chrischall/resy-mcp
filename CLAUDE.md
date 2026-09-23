@@ -145,7 +145,7 @@ Write a failing test before implementation. Keep tool tests in `tests/tools/<nam
 - `DELETE /2/notify` needs the **full** spec as query params (`notify_request_id`, `venue_id`, `day`, `num_seats`, `service_type_id`), not just the id. `resy_remove_notify` looks the spec up internally so callers only pass `notify_id`.
 - Resy's `scope` query param on `/3/user/reservations` is currently a no-op — all scopes return the same list. `resy_list_reservations` filters by `today` client-side.
 - Slot times come back without a timezone offset (restaurant-local); `extractHHMM` parses the string directly to avoid TZ-shifting via `new Date()`.
-- `resy_book` flow: `findSlotsAtVenue` → `GET /3/details?config_id=...` for the `book_token` → `POST /3/book` with `struct_payment_method`. Default payment method is resolved from `/2/user` if `payment_method_id` is omitted.
+- `resy_book` flow: `findSlotsAtVenue` → `GET /3/details?config_id=...` for the `book_token` → `POST /3/book` with `struct_payment_method`. Default payment method is resolved from `/2/user` if `payment_method_id` is omitted. A confirm books only the exact slot a preview showed: `desired_time` + `slot_type` (several seatings share a time, each with its own fees) + `terms_token` (`bookingTermsToken()`, a fingerprint of the slot type and the raw `/3/details` cancellation/payment blocks). Any mismatch re-previews instead of booking.
 
 ## Plugin / Marketplace
 
@@ -218,6 +218,7 @@ write-verification, transport archetypes, testing traps) live in
 - **Auth retry is narrow**: only `401`, `419`, or a `500` matching `\b(unauthorized|auth[_\s-]?token|authentication)\b` triggers a token refresh. A `500` mentioning `book_token expired` is a different failure and is *not* retried.
 - **Auth retry re-runs path selection.** On a 401, the client clears `this.token` and re-invokes the same three-path selector — so if the original token came from fetchproxy, the retry mints a fresh one via fetchproxy too. The selector doesn't pin to whichever path won the first time; an env-var change between calls would be picked up at retry time.
 - **429 retry**: single 2-second backoff, then surface the error.
+- **Request timeout**: every api.resy.com round trip runs under a 30s per-attempt `AbortSignal.timeout`, combined with the MCP caller's cancellation (ambient via mcp-utils). A timed-out or cancelled non-GET reports its outcome as UNKNOWN; `resy_book` confirms also refuse when a reservation already exists at that venue/date (`allow_duplicate` overrides), so a retry after a lost response can't double-book.
 - **`resy_cancel` response is undocumented**: the tool returns `{ cancelled, raw }`. `cancelled` defaults to true on HTTP-OK absent explicit failure signals (`ok: false`, status matching `fail|error|denied`, or an `error*` field). Callers should inspect `raw` if they need certainty.
 - **Slot tokens expire fast** — `resy_find_slots` returns `config_token`s that must be exchanged for a `book_token` (via `GET /3/details`) and then booked promptly. `resy_book` does the whole chain in one call.
 - **Notify date window** ≈ 30 days. Resy rejects dates outside this window with an API error.
