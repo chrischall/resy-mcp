@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.3](https://github.com/chrischall/resy-mcp/compare/v1.1.2...v1.1.3) (2026-09-23)
+
+
+### Bug Fixes
+
+* **book:** book only the exact previewed slot, show its fees, and refuse duplicate or stalled bookings ([#237](https://github.com/chrischall/resy-mcp/issues/237)) ([ffacc3a](https://github.com/chrischall/resy-mcp/commit/ffacc3a2878a55460dcd484f0166a146b850dc81))
+* **book:** give the exact slot_type and terms_token for a duplicate-override or confirm re-run ([#240](https://github.com/chrischall/resy-mcp/issues/240)) ([af7f556](https://github.com/chrischall/resy-mcp/commit/af7f556d8280a030a3686f002b40f3b49779c25e))
+
 ## [1.1.2](https://github.com/chrischall/resy-mcp/compare/v1.1.1...v1.1.2) (2026-09-23)
 
 
