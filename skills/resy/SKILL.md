@@ -83,7 +83,7 @@ Or place `.env` in the project directory with `RESY_EMAIL=` and `RESY_PASSWORD=`
 ### Reservations
 | Tool | Description |
 |------|-------------|
-| `resy_book(venue_id, date, party_size, desired_time?, lat?, lng?, payment_method_id?)` | Composite: find fresh slot → details → book. `desired_time` is "HH:MM" (24h); closest match wins if no exact slot. Uses default payment method unless `payment_method_id` is supplied. |
+| `resy_book(venue_id, date, party_size, desired_time?, allow_closest_time?, lat?, lng?, payment_method_id?, confirm?)` | Composite: find fresh slot → details → book. Without `confirm: true` it only previews. `desired_time` is "HH:MM" (24h); an unavailable time returns the available times unless `allow_closest_time: true` previews the nearest. `confirm: true` books ONLY an exact `desired_time` — pass the preview's `time` back — so the slot booked is always the one approved. Uses default payment method unless `payment_method_id` is supplied. |
 | `resy_list_reservations(scope?)` | List reservations. `scope`: `upcoming` (default), `past`, or `all`. Each result includes the `resy_token` needed for cancellation. |
 | `resy_cancel(resy_token)` | Cancel by `resy_token` (`rr://…`). Inspects the response body to set `cancelled: true/false` honestly. |
 
@@ -152,6 +152,8 @@ The other ten tools take no `view`:
 resy_search_venues(query: "carbone", date: "2026-05-01", party_size: 2)
   → find venue_id
 resy_book(venue_id, date: "2026-05-01", party_size: 2, desired_time: "19:00")
+  → preview: time, payment card; show it to the user
+resy_book(venue_id, date: "2026-05-01", party_size: 2, desired_time: "19:00", confirm: true)
 ```
 
 **See what's available tonight near me:**

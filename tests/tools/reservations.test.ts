@@ -436,19 +436,54 @@ describe('reservation tools (list/cancel)', () => {
       expect(parsed.note).toMatch(/allow_closest_time/);
     });
 
-    it('books the closest slot only when allow_closest_time:true (and confirmed)', async () => {
+    // fleet-audit#225: the confirm call must book the slot the user APPROVED,
+    // not whatever a fresh fetch happens to rank first/closest by then. So
+    // confirm:true only ever books an exact desired_time; anything else is
+    // refused with a fresh preview naming the time to confirm.
+    it('confirm:true with allow_closest_time does NOT book a substituted slot — it re-previews', async () => {
       queueBookMocks({
         slots: [
           { token: 'cfg-630',  time: '18:30' },
           { token: 'cfg-730',  time: '19:30' },
         ],
       });
-      await harness.callTool('resy_book', {
+      const result = await harness.callTool('resy_book', {
         venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:15',
         allow_closest_time: true, confirm: true,
       });
-      // 19:30 is closer to 19:15 than 18:30 → booked via its config token
+      // 19:30 is closer to 19:15 than 18:30 → previewed via its config token
       expect(mockRequest.mock.calls[1][1]).toContain('config_id=cfg-730');
+      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(false);
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed.preview).toBe(true);
+      expect(parsed.booked).toBe(false);
+      expect(parsed.time).toBe('19:30');
+      expect(parsed.is_closest_match).toBe(true);
+      expect(parsed.note).toMatch(/desired_time: "19:30"/);
+    });
+
+    it('confirm:true without desired_time does NOT book the first slot — it re-previews', async () => {
+      // e.g. the user approved a preview showing 17:00; by the confirm call 17:00
+      // is gone and the first slot is now 17:45. Booking slots[0] would charge
+      // for a time nobody approved.
+      queueBookMocks({ slots: [{ token: 'cfg-1745', time: '17:45' }, { token: 'cfg-1900', time: '19:00' }] });
+      const result = await harness.callTool('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2, confirm: true,
+      });
+      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(false);
+      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(parsed.preview).toBe(true);
+      expect(parsed.booked).toBe(false);
+      expect(parsed.time).toBe('17:45');
+      expect(parsed.note).toMatch(/desired_time: "17:45"/);
+    });
+
+    it('confirm:true with the previewed desired_time books exactly that slot', async () => {
+      queueBookMocks({ slots: [{ token: 'cfg-1745', time: '17:45' }, { token: 'cfg-1900', time: '19:00' }] });
+      await harness.callTool('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00', confirm: true,
+      });
+      expect(mockRequest.mock.calls[1][1]).toContain('config_id=cfg-1900');
       expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(true);
     });
 

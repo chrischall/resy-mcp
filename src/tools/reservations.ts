@@ -346,7 +346,9 @@ export function registerReservationTools(
         'slot time that would be booked, and the payment card last-4) and books nothing. ' +
         'Pass desired_time (HH:MM, 24-hour) to target a specific slot. If your exact desired_time is not ' +
         'available the tool does NOT auto-book a different time — it returns the available times so you can pick, ' +
-        'unless you pass allow_closest_time:true. Omit desired_time to take the first available slot. ' +
+        'unless you pass allow_closest_time:true (which previews the nearest slot). Omit desired_time to preview ' +
+        'the first available slot. confirm:true books ONLY an exact desired_time: to book a previewed slot, pass ' +
+        "the preview's time as desired_time with confirm:true (without allow_closest_time). " +
         "Uses the user's default payment method unless payment_method_id is supplied.",
       annotations: {
         ...toolAnnotations({ title: 'Book a Resy reservation', readOnly: false }),
@@ -365,9 +367,9 @@ export function registerReservationTools(
           .boolean()
           .optional()
           .describe(
-            'When true, if your exact desired_time is unavailable the closest slot is booked instead of ' +
-              'returning the available times to pick from. Default false: an unavailable desired_time never ' +
-              'silently books a different time.'
+            'When true, if your exact desired_time is unavailable the preview selects the closest slot instead ' +
+              'of returning the available times to pick from. It never books on its own: confirm with that ' +
+              "slot's time as desired_time. Default false."
           ),
         lat: z.number().optional(),
         lng: z.number().optional(),
@@ -430,17 +432,31 @@ export function registerReservationTools(
           ? { id: payment_method_id }
           : await resolveDefaultPaymentMethod(client);
 
-      // 5. dry-run preview unless explicitly confirmed. Everything above is a
-      //    read; the booking POST below is the only mutation and it requires
-      //    confirm:true. The preview surfaces the EXACT slot time so a confirm
-      //    is an informed one.
-      if (confirm !== true) {
+      // 5. dry-run preview unless explicitly confirmed AND the confirm names
+      //    the exact slot. Everything above is a read; the booking POST below
+      //    is the only mutation.
+      //
+      //    Preview and confirm are separate, stateless calls that each re-fetch
+      //    slots, so "first available" or "closest" can resolve to a DIFFERENT
+      //    slot at confirm time than the one the user approved (someone takes
+      //    the 17:00 table; the confirm quietly books 17:45). A confirm
+      //    therefore books only an exact desired_time — i.e. the preview's
+      //    `time` fed back — and anything else is refused with a fresh preview
+      //    (fleet-audit#225).
+      const confirmable =
+        confirm === true && desired_time !== undefined && !selection.isClosest;
+      if (!confirmable) {
+        const refused = confirm === true;
         return minifiedResult({
           preview: true,
           action: 'book',
           booked: false,
           note:
-            `DRY RUN — nothing was booked. Re-run with confirm: true to book this slot.` +
+            (refused
+              ? `NOT BOOKED — confirm: true books only an exact desired_time, so the slot booked is ` +
+                `always the one you approved. `
+              : `DRY RUN — nothing was booked. `) +
+            `To book this slot, re-run with confirm: true and desired_time: "${chosen.time}".` +
             (selection.isClosest
               ? ` NOTE: your requested time ${desired_time} was unavailable, so the CLOSEST slot (${chosen.time}) was selected.`
               : ''),
