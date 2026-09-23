@@ -78,16 +78,20 @@ function formatReservation(
 }
 
 /**
- * Today's date in YYYY-MM-DD, in the LOCAL zone. Used for client-side scope
- * filtering because Resy's `scope` query param is currently a no-op (all
- * scopes return the same list).
+ * The upcoming/past boundary as YYYY-MM-DD, for client-side scope filtering
+ * (Resy's `scope` query param is a no-op — all scopes return the same list).
+ *
+ * NOT the server's local date: hosted, the process runs in UTC, so from 8pm
+ * EDT onward "today" was already tomorrow and tonight's booking was filed
+ * under "past" (fleet-audit#228). A reservation's `day` is venue-local and
+ * the venue's zone isn't in the payload, so this is the date in the EARLIEST
+ * zone on Earth (UTC-12, "Anywhere on Earth"): a day only counts as past once
+ * it has ended everywhere, so a booking is never hidden while its evening can
+ * still be ahead. The cost is at most a few hours in which yesterday's
+ * reservation is still listed as upcoming — the safe direction.
  */
-function todayYMD(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${dd}`;
+function upcomingBoundaryYMD(): string {
+  return new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 // ─── resy_book helpers ────────────────────────────────────────────────
@@ -254,7 +258,7 @@ export function registerReservationTools(
         '/3/user/reservations'
       );
       const venues = data.venues ?? {};
-      const today = todayYMD();
+      const today = upcomingBoundaryYMD();
       const filtered = (data.reservations ?? []).filter((r) => {
         if (scopeResolved === 'all') return true;
         const day = r.day ?? '';

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import type { ResyClient } from '../../src/client.js';
 import { registerReservationTools } from '../../src/tools/reservations.js';
 import { createTestHarness } from '../helpers.js';
@@ -173,6 +173,50 @@ describe('reservation tools (list/cancel)', () => {
       const result = await harness.callTool('resy_list_reservations', { scope: 'all' });
       const parsed = JSON.parse((result.content[0] as { text: string }).text);
       expect(parsed).toHaveLength(2);
+    });
+
+    // fleet-audit#228: "today" must not be the SERVER's local date. Hosted, the
+    // process runs in UTC — at 20:30 EDT on Sep 23 it is already Sep 24 there,
+    // and tonight's booking fell into "past" (and out of the default list,
+    // taking its resy_token with it).
+    describe('today boundary is timezone-independent', () => {
+      afterEach(() => { vi.useRealTimers(); });
+
+      it('keeps tonight\'s booking "upcoming" when UTC has already rolled to tomorrow', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        // 2026-09-24T00:30Z == 20:30 EDT on 2026-09-23.
+        vi.setSystemTime(new Date('2026-09-24T00:30:00Z'));
+        mockPayload(
+          [{ resy_token: 'rr://tonight', reservation_id: 1, venue_id: 1, day: '2026-09-23', time_slot: '21:00:00' }],
+          { '1': { name: 'X' } }
+        );
+        const upcoming = JSON.parse(
+          ((await harness.callTool('resy_list_reservations')).content[0] as { text: string }).text
+        );
+        expect(upcoming.map((r: { resy_token: string }) => r.resy_token)).toEqual(['rr://tonight']);
+
+        const past = JSON.parse(
+          ((await harness.callTool('resy_list_reservations', { scope: 'past' })).content[0] as { text: string }).text
+        );
+        expect(past).toEqual([]);
+      });
+
+      it('moves a day into "past" once that date has ended everywhere', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        // 2026-09-24T13:00Z: 2026-09-23 is over in every timezone (UTC-12 is at 01:00 on the 24th).
+        vi.setSystemTime(new Date('2026-09-24T13:00:00Z'));
+        mockPayload(
+          [
+            { resy_token: 'rr://yesterday', reservation_id: 1, venue_id: 1, day: '2026-09-23' },
+            { resy_token: 'rr://today', reservation_id: 2, venue_id: 1, day: '2026-09-24' },
+          ],
+          { '1': { name: 'X' } }
+        );
+        const upcoming = JSON.parse(
+          ((await harness.callTool('resy_list_reservations')).content[0] as { text: string }).text
+        );
+        expect(upcoming.map((r: { resy_token: string }) => r.resy_token)).toEqual(['rr://today']);
+      });
     });
 
     it('does not pass scope in the query string (Resy ignores it)', async () => {
