@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.2](https://github.com/chrischall/resy-mcp/compare/v1.1.1...v1.1.2) (2026-09-23)
+
+
+### Bug Fixes
+
+* **deps:** require zod ^4.6.5 to match @chrischall/mcp-utils 2.4.0 ([#236](https://github.com/chrischall/resy-mcp/issues/236)) ([3be0a2f](https://github.com/chrischall/resy-mcp/commit/3be0a2f7af35b05eebda7049342ed8d465075ce0))
+* **deps:** upgrade @chrischall/mcp-utils to 2.4.0 and @fetchproxy/* to 3.2.0 ([#234](https://github.com/chrischall/resy-mcp/issues/234)) ([f32b9ec](https://github.com/chrischall/resy-mcp/commit/f32b9ec6739cd3ef99fe9605581df4b97a05aeed))
+
 ## [1.1.1](https://github.com/chrischall/resy-mcp/compare/v1.1.0...v1.1.1) (2026-09-21)
 
 
