@@ -463,7 +463,9 @@ describe('reservation tools (list/cancel)', () => {
       });
       const result = await harness.callTool('resy_book', {
         venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:15',
-        allow_closest_time: true, confirm: true,
+        // A matching slot_type + terms_token, so the ONLY thing refusing this
+        // booking is the exact-time guard (desired_time && !isClosest).
+        allow_closest_time: true, confirm: true, ...DR_CONFIRM,
       });
       // 19:30 is closer to 19:15 than 18:30 → previewed via its config token
       expect(mockRequest.mock.calls[1][1]).toContain('config_id=cfg-730');
@@ -482,7 +484,8 @@ describe('reservation tools (list/cancel)', () => {
       // for a time nobody approved.
       queueBookMocks({ slots: [{ token: 'cfg-1745', time: '17:45' }, { token: 'cfg-1900', time: '19:00' }] });
       const result = await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, confirm: true,
+        // Matching slot_type + terms_token: only the missing desired_time refuses it.
+        venue_id: 101, date: '2026-05-01', party_size: 2, confirm: true, ...DR_CONFIRM,
       });
       expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(false);
       const parsed = JSON.parse((result.content[0] as { text: string }).text);
