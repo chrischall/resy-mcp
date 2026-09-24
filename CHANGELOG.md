@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/chrischall/resy-mcp/compare/v1.1.3...v1.2.0) (2026-09-24)
+
+
+### Features
+
+* confirm writes with a preview token instead of confirm: true ([#241](https://github.com/chrischall/resy-mcp/issues/241)) ([d214d2e](https://github.com/chrischall/resy-mcp/commit/d214d2eb1703d957389d68a9c765b08ce82fe715))
+
 ## [1.1.3](https://github.com/chrischall/resy-mcp/compare/v1.1.2...v1.1.3) (2026-09-23)
 
 
