@@ -83,9 +83,9 @@ Or place `.env` in the project directory with `RESY_EMAIL=` and `RESY_PASSWORD=`
 ### Reservations
 | Tool | Description |
 |------|-------------|
-| `resy_book(venue_id, date, party_size, desired_time?, slot_type?, terms_token?, allow_closest_time?, lat?, lng?, payment_method_id?, allow_duplicate?, confirm?)` | Composite: find fresh slot → details → book. Without `confirm: true` it only previews. `desired_time` is "HH:MM" (24h); an unavailable time returns the available times unless `allow_closest_time: true` previews the nearest. `slot_type` picks a seating (Dining Room / Bar / Patio) when several share a time. `confirm: true` books ONLY the exact previewed slot — pass the preview's `time` as `desired_time`, plus its `slot_type` and `terms_token` (a fingerprint of the seating type and cancellation/payment terms) — so the slot booked is always the one approved; without all three it only returns a fresh preview. A confirm refuses if you already hold a reservation at that venue that date (e.g. an earlier timed-out call that went through) unless `allow_duplicate: true`. Uses default payment method unless `payment_method_id` is supplied. |
+| `resy_book(venue_id, date, party_size, desired_time?, slot_type?, terms_token?, allow_closest_time?, lat?, lng?, payment_method_id?, allow_duplicate?, confirmToken?)` | Composite: find fresh slot → details → book. It books ONLY the exact previewed slot: without `desired_time` + `slot_type` + `terms_token` (a fingerprint of the seating type and cancellation/payment terms) it only returns a preview. `desired_time` is "HH:MM" (24h); an unavailable time returns the available times unless `allow_closest_time: true` previews the nearest. `slot_type` picks a seating (Dining Room / Bar / Patio) when several share a time. Once all three name the previewed slot, the booking asks the user to confirm first: a confirmation prompt where the client supports one; otherwise that call returns the preview plus a `confirmToken`, and only a repeat call with that token books (see `MCP_CONFIRM_MODE`). If the slot, its type or its terms changed, nothing is booked and a fresh preview is returned. The booking refuses if you already hold a reservation at that venue that date (e.g. an earlier timed-out call that went through) unless `allow_duplicate: true`. Uses default payment method unless `payment_method_id` is supplied. |
 | `resy_list_reservations(scope?)` | List reservations. `scope`: `upcoming` (default), `past`, or `all`. Each result includes the `resy_token` needed for cancellation. |
-| `resy_cancel(resy_token)` | Cancel by `resy_token` (`rr://…`). Inspects the response body to set `cancelled: true/false` honestly. |
+| `resy_cancel(resy_token, confirmToken?)` | Cancel by `resy_token` (`rr://…`). Asks the user to confirm first (venue, date, time, party size, any fee): a prompt where the client supports one, otherwise a preview plus `confirmToken` that a repeat call passes back. Inspects the response body to set `cancelled: true/false` honestly. |
 
 ### Favorites
 | Tool | Description |
@@ -154,7 +154,9 @@ resy_search_venues(query: "carbone", date: "2026-05-01", party_size: 2)
 resy_book(venue_id, date: "2026-05-01", party_size: 2, desired_time: "19:00")
   → preview: time, slot_type, terms_token, fees, payment card; show it to the user
 resy_book(venue_id, date: "2026-05-01", party_size: 2, desired_time: "19:00",
-          slot_type: "<preview's slot_type>", terms_token: "<preview's terms_token>", confirm: true)
+          slot_type: "<preview's slot_type>", terms_token: "<preview's terms_token>")
+  → a confirmation prompt; or, on a client without prompts, the preview plus a confirmToken:
+    show it to the user and, once they approve in chat, repeat the call with confirmToken
 ```
 
 **See what's available tonight near me:**
@@ -167,6 +169,7 @@ resy_search_venues(date: "2026-04-20", party_size: 2, lat: 37.7749, lng: -122.41
 ```
 resy_list_reservations() → find resy_token for the one to cancel
 resy_cancel(resy_token)
+  → a confirmation prompt, or a preview plus confirmToken to pass back once the user approves
 ```
 
 **Stalking a hard-to-get table:**
