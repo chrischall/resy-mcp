@@ -114,7 +114,7 @@ just re-run Step 1 to mint a fresh one — there's no incremental refresh.
 
 - This is your own Resy account — write calls (book, cancel, favorite,
   notify) mutate real reservations/subscriptions. There is no dry-run at
-  the curl layer (the MCP's `confirm`-gated preview is an MCP-side
+  the curl layer (the MCP's confirmation step — prompt or preview token — is an MCP-side
   convenience); read back with a list call before/after a write if you
   want to verify it landed.
 - `fpx health -p resy` shows bridge connection state if Path B's bootstrap

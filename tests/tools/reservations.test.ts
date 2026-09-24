@@ -228,15 +228,79 @@ describe('reservation tools (list/cancel)', () => {
     });
   });
 
-  describe('resy_cancel', () => {
-    it('POSTs /3/cancel form-encoded with resy_token when confirmed', async () => {
-      mockRequest.mockResolvedValue({ ok: true, status: 'cancelled', refund: 0 });
-      const result = await harness.callTool('resy_cancel', { resy_token: 'rr://abc', confirm: true });
 
-      expect(mockRequest).toHaveBeenCalledTimes(1);
-      const [method, path, body] = mockRequest.mock.calls[0];
-      expect(method).toBe('POST');
-      expect(path).toBe('/3/cancel');
+  // ─── confirmation plumbing ──────────────────────────────────────────
+  // `harness` has no elicitation handler: it is a client that cannot be
+  // prompted, so under the default MCP_CONFIRM_MODE (ask-user) every write
+  // runs the two-step token flow. Phase 1 returns a preview and a
+  // confirmToken and does nothing; phase 2 (same args + token) writes.
+  const SAVED_CONFIRM_MODE = process.env.MCP_CONFIRM_MODE;
+  beforeEach(() => { delete process.env.MCP_CONFIRM_MODE; });
+  afterEach(() => {
+    if (SAVED_CONFIRM_MODE === undefined) delete process.env.MCP_CONFIRM_MODE;
+    else process.env.MCP_CONFIRM_MODE = SAVED_CONFIRM_MODE;
+  });
+
+  function parse(result: { content: unknown[] }): any {
+    return JSON.parse((result.content[0] as { text: string }).text);
+  }
+
+  /** Phase 1, then phase 2 with the token phase 1 returned. */
+  async function confirmed(name: string, args: Record<string, unknown>) {
+    const first = parse(await harness.callTool(name, args));
+    expect(first.status).toBe('confirmation-required');
+    expect(typeof first.confirmToken).toBe('string');
+    const result = await harness.callTool(name, { ...args, confirmToken: first.confirmToken });
+    return { first, result };
+  }
+
+  /** A harness whose client CAN be prompted, answering every prompt with `action`. */
+  function promptingHarness(action: 'accept' | 'decline') {
+    return createTestHarness((server) => registerReservationTools(server, mockClient), {
+      elicitation: async () =>
+        action === 'accept' ? { action: 'accept', content: { confirmed: true } } : { action: 'decline' },
+    });
+  }
+
+  const posts = (path: string) => mockRequest.mock.calls.filter((c) => c[0] === 'POST' && c[1] === path);
+
+  describe('resy_cancel', () => {
+    const LISTING = {
+      reservations: [
+        {
+          resy_token: 'rr://abc',
+          reservation_id: 42,
+          venue: { id: 1 },
+          day: '2099-12-31',
+          time_slot: '19:30:00',
+          num_seats: 4,
+          config: { type: 'Dining Room' },
+          cancellation: { allowed: true, fee: { amount: 25, applies: true } },
+        },
+      ],
+      venues: { '1': { name: 'The Ordinary' } },
+    };
+
+    /** Route GET /3/user/reservations and POST /3/cancel by path. */
+    function routeCancel(
+      listing: unknown | (() => unknown),
+      cancelResponse: Record<string, unknown> = { ok: true, status: 'cancelled', refund: 0 }
+    ) {
+      mockRequest.mockImplementation(async (method: string, path: string) => {
+        if (method === 'GET' && path === '/3/user/reservations') {
+          return typeof listing === 'function' ? (listing as () => unknown)() : listing;
+        }
+        if (method === 'POST' && path === '/3/cancel') return cancelResponse;
+        throw new Error(`unexpected ${method} ${path}`);
+      });
+    }
+
+    it('phase 2 with the confirmToken POSTs /3/cancel form-encoded with resy_token, exactly once', async () => {
+      routeCancel(LISTING);
+      const { result } = await confirmed('resy_cancel', { resy_token: 'rr://abc' });
+
+      expect(posts('/3/cancel')).toHaveLength(1);
+      const [, , body] = posts('/3/cancel')[0];
       expect(body).toBeInstanceOf(URLSearchParams);
       expect((body as URLSearchParams).get('resy_token')).toBe('rr://abc');
 
@@ -246,274 +310,127 @@ describe('reservation tools (list/cancel)', () => {
     });
 
     it('reports cancelled=false when Resy returns an explicit failure body', async () => {
-      mockRequest.mockResolvedValue({ ok: false, error: 'past deadline' });
-      const result = await harness.callTool('resy_cancel', { resy_token: 'rr://late', confirm: true });
+      routeCancel(LISTING, { ok: false, error: 'past deadline' });
+      const { result } = await confirmed('resy_cancel', { resy_token: 'rr://abc' });
       const text = (result.content[0] as { text: string }).text;
       expect(text).toContain('"cancelled":false');
       expect(text).toContain('"error":"past deadline"');
     });
 
     it('reports cancelled=false on a fail-shaped status string', async () => {
-      mockRequest.mockResolvedValue({ status: 'failed' });
-      const result = await harness.callTool('resy_cancel', { resy_token: 'rr://x', confirm: true });
+      routeCancel(LISTING, { status: 'failed' });
+      const { result } = await confirmed('resy_cancel', { resy_token: 'rr://abc' });
       const text = (result.content[0] as { text: string }).text;
       expect(text).toContain('"cancelled":false');
     });
 
-    // ─── confirm gate ─────────────────────────────────────────────────
-    it('without confirm returns a dry-run preview and makes NO /3/cancel call', async () => {
-      // Preview looks up the reservation (read-only) to show what would be cancelled.
-      mockRequest.mockResolvedValue({
-        reservations: [
-          {
-            resy_token: 'rr://abc',
-            reservation_id: 42,
-            venue: { id: 1 },
-            day: '2099-12-31',
-            time_slot: '19:30:00',
-            num_seats: 4,
-            config: { type: 'Dining Room' },
-            cancellation: { allowed: true, fee: { amount: 25, applies: true } },
-          },
-        ],
-        venues: { '1': { name: 'The Ordinary' } },
-      });
-
-      const result = await harness.callTool('resy_cancel', { resy_token: 'rr://abc' });
+    it('phase 1 returns confirmation-required with the preview and makes NO /3/cancel call', async () => {
+      routeCancel(LISTING);
+      const parsed = parse(await harness.callTool('resy_cancel', { resy_token: 'rr://abc' }));
 
       // Only the read happened — never POST /3/cancel.
-      expect(mockRequest).toHaveBeenCalledTimes(1);
-      const [method, path] = mockRequest.mock.calls[0];
-      expect(method).toBe('GET');
-      expect(path).toBe('/3/user/reservations');
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/cancel')).toBe(false);
+      expect(mockRequest.mock.calls).toEqual([['GET', '/3/user/reservations']]);
+      expect(posts('/3/cancel')).toHaveLength(0);
 
-      const parsed = JSON.parse((result.content[0] as { text: string }).text);
-      expect(parsed.preview).toBe(true);
-      expect(parsed.cancelled).toBe(false);
-      expect(parsed.venue_name).toBe('The Ordinary');
-      expect(parsed.time).toBe('19:30');
-      expect(parsed.party_size).toBe(4);
-      expect(parsed.cancellation_fee).toBe(25);
-      expect(parsed.note).toMatch(/cancellation fee of 25/i);
+      expect(parsed.status).toBe('confirmation-required');
+      expect(parsed.action).toBe('resy.cancel');
+      expect(parsed.preview.cancelled).toBe(false);
+      expect(parsed.preview.resy_token).toBe('rr://abc');
+      expect(parsed.preview.venue_name).toBe('The Ordinary');
+      expect(parsed.preview.date).toBe('2099-12-31');
+      expect(parsed.preview.time).toBe('19:30');
+      expect(parsed.preview.party_size).toBe(4);
+      expect(parsed.preview.cancellable).toBe(true);
+      expect(parsed.preview.cancellation_fee).toBe(25);
+      expect(parsed.preview.note).toMatch(/cancellation fee of 25/i);
     });
 
-    it('preview still works (no crash) when the resy_token is not found', async () => {
-      mockRequest.mockResolvedValue({ reservations: [], venues: {} });
-      const result = await harness.callTool('resy_cancel', { resy_token: 'rr://ghost' });
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/cancel')).toBe(false);
-      const parsed = JSON.parse((result.content[0] as { text: string }).text);
-      expect(parsed.preview).toBe(true);
-      expect(parsed.cancelled).toBe(false);
-      expect(parsed.note).toMatch(/not found/i);
+    it('phase 1 still previews (no crash) when the resy_token is not found, and phase 2 attempts the cancel anyway', async () => {
+      routeCancel({ reservations: [], venues: {} });
+      const { first } = await confirmed('resy_cancel', { resy_token: 'rr://ghost' });
+      expect(first.preview.cancelled).toBe(false);
+      expect(first.preview.note).toMatch(/not found/i);
+      expect(first.preview).not.toHaveProperty('venue_name');
+      expect(posts('/3/cancel')).toHaveLength(1);
+    });
+
+    it('replaying a used confirmToken is refused as TOKEN_REUSED and cancels nothing more', async () => {
+      routeCancel(LISTING);
+      const { first } = await confirmed('resy_cancel', { resy_token: 'rr://abc' });
+      expect(posts('/3/cancel')).toHaveLength(1);
+
+      const replay = await harness.callTool('resy_cancel', { resy_token: 'rr://abc', confirmToken: first.confirmToken });
+      expect(replay.isError).toBe(true);
+      expect(parse(replay).error).toBe('TOKEN_REUSED');
+      expect(posts('/3/cancel')).toHaveLength(1);
+    });
+
+    it('refuses as DRAFT_CHANGED when the reservation changed between the phases (a fee appeared)', async () => {
+      let fee: { amount: number; applies: boolean } | undefined;
+      routeCancel(() => ({
+        ...LISTING,
+        reservations: [{ ...LISTING.reservations[0], cancellation: { allowed: true, fee } }],
+      }));
+      const first = parse(await harness.callTool('resy_cancel', { resy_token: 'rr://abc' }));
+      expect(first.preview).not.toHaveProperty('cancellation_fee');
+
+      fee = { amount: 50, applies: true };
+      const second = await harness.callTool('resy_cancel', { resy_token: 'rr://abc', confirmToken: first.confirmToken });
+      expect(second.isError).toBe(true);
+      const parsed = parse(second);
+      expect(parsed.error).toBe('DRAFT_CHANGED');
+      expect(parsed.preview.cancellation_fee).toBe(50);
+      expect(posts('/3/cancel')).toHaveLength(0);
+    });
+
+    it('a client that can be prompted cancels once on accept', async () => {
+      routeCancel(LISTING);
+      const h = await promptingHarness('accept');
+      try {
+        const result = await h.callTool('resy_cancel', { resy_token: 'rr://abc' });
+        expect(result.isError).toBeFalsy();
+        expect(posts('/3/cancel')).toHaveLength(1);
+      } finally {
+        await h.close();
+      }
+    });
+
+    it('a client that can be prompted cancels nothing on decline', async () => {
+      routeCancel(LISTING);
+      const h = await promptingHarness('decline');
+      try {
+        await h.callTool('resy_cancel', { resy_token: 'rr://abc' });
+        expect(posts('/3/cancel')).toHaveLength(0);
+      } finally {
+        await h.close();
+      }
+    });
+
+    it('MCP_CONFIRM_MODE=refuse refuses on a client that cannot be prompted, and cancels nothing', async () => {
+      process.env.MCP_CONFIRM_MODE = 'refuse';
+      routeCancel(LISTING);
+      const parsed = parse(await harness.callTool('resy_cancel', { resy_token: 'rr://abc' }));
+      expect(parsed.reason).toBe('confirmation-unsupported');
+      expect(posts('/3/cancel')).toHaveLength(0);
     });
   });
 
   describe('resy_book', () => {
-    // What a preview hands back for the default queueBookMocks slot: a confirm
-    // feeds these in, so it books only the slot TYPE and TERMS the user saw.
+    // The exact slot a preview of the default routeBook slot hands back: a
+    // booking goes ahead only with these fed in, so it books the slot TYPE and
+    // TERMS the user saw.
     const DR_CONFIRM = {
       slot_type: 'Dining Room',
       terms_token: bookingTermsToken('Dining Room', null, null),
     };
+    const BOOK_19 = { venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00', ...DR_CONFIRM };
 
-    function queueBookMocks(opts: {
-      slots: Array<{ token: string; time: string; type?: string }>;
-      bookToken?: string | null;
-      venueName?: string;
-      paymentMethods?: Array<{ id: number; is_default?: boolean; last_four?: string }>;
-      bookResponse?: Record<string, unknown>;
-      /** GET /3/user/reservations — the duplicate check a confirm runs before POST /3/book. */
-      existingReservations?: { reservations: unknown[]; venues?: Record<string, { name: string }> };
-    }) {
-      // /4/find
-      mockRequest.mockResolvedValueOnce({
-        results: {
-          venues: [{
-            slots: opts.slots.map((s) => ({
-              config: { token: s.token, type: s.type ?? 'Dining Room' },
-              date: { start: `2026-05-01 ${s.time}:00`, end: '' },
-            })),
-          }],
-        },
-      });
-      if (opts.bookToken !== null) {
-        // /3/details
-        mockRequest.mockResolvedValueOnce({
-          book_token: { value: opts.bookToken ?? 'BK-1', date_expires: '' },
-          venue: {
-            name: opts.venueName ?? 'Carbone',
-            venue_url_slug: 'carbone',
-            location: { url_slug: 'new-york-ny' },
-          },
-          config: { type: 'Dining Room' },
-        });
-        // /2/user
-        mockRequest.mockResolvedValueOnce({
-          payment_methods: opts.paymentMethods ?? [{ id: 55, is_default: true }],
-        });
-        // /3/user/reservations (confirm path only; a preview leaves it queued)
-        mockRequest.mockResolvedValueOnce(opts.existingReservations ?? { reservations: [], venues: {} });
-        // /3/book
-        mockRequest.mockResolvedValueOnce(
-          opts.bookResponse ?? {
-            resy_token: 'rr://new',
-            reservation_id: 9001,
-            date: '2026-05-01',
-            time_slot: '19:00',
-            num_seats: 2,
-          }
-        );
-      }
-    }
-
-    it('runs the find→details→user→book sequence with default payment method', async () => {
-      queueBookMocks({
-        slots: [{ token: 'cfg-7pm', time: '19:00' }],
-      });
-
-      const result = await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00', confirm: true, ...DR_CONFIRM,
-      });
-
-      expect(mockRequest).toHaveBeenCalledTimes(5);
-
-      // find
-      expect(mockRequest.mock.calls[0][0]).toBe('GET');
-      expect(mockRequest.mock.calls[0][1]).toContain('/4/find?');
-
-      // details
-      expect(mockRequest.mock.calls[1][0]).toBe('GET');
-      expect(mockRequest.mock.calls[1][1]).toContain('/3/details?');
-      expect(mockRequest.mock.calls[1][1]).toContain('config_id=cfg-7pm');
-
-      // user
-      expect(mockRequest.mock.calls[2]).toEqual(['GET', '/2/user']);
-
-      // duplicate check
-      expect(mockRequest.mock.calls[3]).toEqual(['GET', '/3/user/reservations']);
-
-      // book
-      const [bookMethod, bookPath, bookBody] = mockRequest.mock.calls[4];
-      expect(bookMethod).toBe('POST');
-      expect(bookPath).toBe('/3/book');
-      expect(bookBody).toBeInstanceOf(URLSearchParams);
-      const bb = bookBody as URLSearchParams;
-      expect(bb.get('book_token')).toBe('BK-1');
-      expect(JSON.parse(bb.get('struct_payment_method')!)).toEqual({ id: 55 });
-      expect(bb.get('source_id')).toBe('resy.com-venue-details');
-
-      const text = (result.content[0] as { text: string }).text;
-      expect(text).toContain('"resy_token":"rr://new"');
-      expect(text).toContain('"venue_url":"https://resy.com/cities/new-york-ny/carbone"');
-    });
-
-    it('rejects malformed desired_time with a clear validation error', async () => {
-      const result = await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '7pm',
-      });
-      expect(result.isError).toBeTruthy();
-      const text = (result.content[0] as { text: string }).text;
-      expect(text).toMatch(/desired_time/i);
-      expect(mockRequest).not.toHaveBeenCalled();
-    });
-
-    it('does NOT silently book a different time when exact desired_time is missing', async () => {
-      // Only find-slots should run; no details/book — the tool asks the caller
-      // to pick rather than substituting a time they never requested.
-      mockRequest.mockResolvedValueOnce({
-        results: {
-          venues: [{
-            slots: [
-              { config: { token: 'cfg-630', type: 'Dining Room' }, date: { start: '2026-05-01 18:30:00' } },
-              { config: { token: 'cfg-730', type: 'Dining Room' }, date: { start: '2026-05-01 19:30:00' } },
-            ],
-          }],
-        },
-      });
-
-      const result = await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:15', confirm: true,
-      });
-
-      // find only — never /3/details or /3/book
-      expect(mockRequest).toHaveBeenCalledTimes(1);
-      expect(mockRequest.mock.calls[0][1]).toContain('/4/find?');
-      expect(mockRequest.mock.calls.some((c) => String(c[1]).includes('/3/details'))).toBe(false);
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(false);
-
-      const parsed = JSON.parse((result.content[0] as { text: string }).text);
-      expect(parsed.preview).toBe(true);
-      expect(parsed.booked).toBe(false);
-      expect(parsed.requested_time).toBe('19:15');
-      expect(parsed.available_times).toEqual(['18:30', '19:30']);
-      expect(parsed.note).toMatch(/allow_closest_time/);
-    });
-
-    // fleet-audit#225: the confirm call must book the slot the user APPROVED,
-    // not whatever a fresh fetch happens to rank first/closest by then. So
-    // confirm:true only ever books an exact desired_time; anything else is
-    // refused with a fresh preview naming the time to confirm.
-    it('confirm:true with allow_closest_time does NOT book a substituted slot — it re-previews', async () => {
-      queueBookMocks({
-        slots: [
-          { token: 'cfg-630',  time: '18:30' },
-          { token: 'cfg-730',  time: '19:30' },
-        ],
-      });
-      const result = await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:15',
-        // A matching slot_type + terms_token, so the ONLY thing refusing this
-        // booking is the exact-time guard (desired_time && !isClosest).
-        allow_closest_time: true, confirm: true, ...DR_CONFIRM,
-      });
-      // 19:30 is closer to 19:15 than 18:30 → previewed via its config token
-      expect(mockRequest.mock.calls[1][1]).toContain('config_id=cfg-730');
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(false);
-      const parsed = JSON.parse((result.content[0] as { text: string }).text);
-      expect(parsed.preview).toBe(true);
-      expect(parsed.booked).toBe(false);
-      expect(parsed.time).toBe('19:30');
-      expect(parsed.is_closest_match).toBe(true);
-      expect(parsed.note).toMatch(/desired_time: "19:30"/);
-    });
-
-    it('confirm:true without desired_time does NOT book the first slot — it re-previews', async () => {
-      // e.g. the user approved a preview showing 17:00; by the confirm call 17:00
-      // is gone and the first slot is now 17:45. Booking slots[0] would charge
-      // for a time nobody approved.
-      queueBookMocks({ slots: [{ token: 'cfg-1745', time: '17:45' }, { token: 'cfg-1900', time: '19:00' }] });
-      const result = await harness.callTool('resy_book', {
-        // Matching slot_type + terms_token: only the missing desired_time refuses it.
-        venue_id: 101, date: '2026-05-01', party_size: 2, confirm: true, ...DR_CONFIRM,
-      });
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(false);
-      const parsed = JSON.parse((result.content[0] as { text: string }).text);
-      expect(parsed.preview).toBe(true);
-      expect(parsed.booked).toBe(false);
-      expect(parsed.time).toBe('17:45');
-      expect(parsed.note).toMatch(/desired_time: "17:45"/);
-    });
-
-    it('confirm:true with the previewed desired_time books exactly that slot', async () => {
-      queueBookMocks({ slots: [{ token: 'cfg-1745', time: '17:45' }, { token: 'cfg-1900', time: '19:00' }] });
-      await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00', confirm: true, ...DR_CONFIRM,
-      });
-      expect(mockRequest.mock.calls[1][1]).toContain('config_id=cfg-1900');
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(true);
-    });
-
-    // fleet-audit#225 (follow-up): a confirm is tied to the previewed SLOT, not
-    // just its time. Resy lists several seatings at one time (Dining Room / Bar
-    // / Patio) with different fees; matching on time alone let a confirm book a
-    // same-time Patio slot, with a no-show fee, that nobody previewed.
-    function findResponse(slots: Array<{ token: string; time: string; type: string }>) {
+    function findResponse(slots: Array<{ token: string; time: string; type?: string }>) {
       return {
         results: {
           venues: [{
             slots: slots.map((s) => ({
-              config: { token: s.token, type: s.type },
+              config: { token: s.token, type: s.type ?? 'Dining Room' },
               date: { start: `2026-05-01 ${s.time}:00`, end: '' },
             })),
           }],
@@ -530,18 +447,177 @@ describe('reservation tools (list/cancel)', () => {
     }
     const patioFee = { fee: { amount: 25, applies: true, date_cut_off: '2026-04-30T17:00:00Z' } };
 
-    it('preview returns the slot_type and a terms_token for the confirm to feed back', async () => {
-      mockRequest
-        .mockResolvedValueOnce(findResponse([
+    /**
+     * Route every Resy call resy_book makes by path, so a test can run any
+     * number of phases against the same upstream state.
+     */
+    function routeBook(opts: {
+      slots: Array<{ token: string; time: string; type?: string }>;
+      /** GET /3/details — a fixed body, or one chosen from the requested path (config_id). */
+      details?: Record<string, unknown> | ((path: string) => Record<string, unknown>);
+      paymentMethods?: Array<{ id: number; is_default?: boolean; last_four?: string }>;
+      bookResponse?: Record<string, unknown>;
+      /** GET /3/user/reservations — the duplicate check phase 2 runs before POST /3/book. */
+      existingReservations?: { reservations: unknown[]; venues?: Record<string, { name: string }> };
+    }) {
+      mockRequest.mockImplementation(async (method: string, path: string) => {
+        if (method === 'GET' && path.startsWith('/4/find?')) return findResponse(opts.slots);
+        if (method === 'GET' && path.startsWith('/3/details?')) {
+          const d = opts.details;
+          if (typeof d === 'function') return d(path);
+          return d ?? {
+            book_token: { value: 'BK-1', date_expires: '' },
+            venue: { name: 'Carbone', venue_url_slug: 'carbone', location: { url_slug: 'new-york-ny' } },
+            config: { type: 'Dining Room' },
+          };
+        }
+        if (method === 'GET' && path === '/2/user') {
+          return { payment_methods: opts.paymentMethods ?? [{ id: 55, is_default: true }] };
+        }
+        if (method === 'GET' && path === '/3/user/reservations') {
+          return opts.existingReservations ?? { reservations: [], venues: {} };
+        }
+        if (method === 'POST' && path === '/3/book') {
+          return opts.bookResponse ?? {
+            resy_token: 'rr://new', reservation_id: 9001, date: '2026-05-01', time_slot: '19:00', num_seats: 2,
+          };
+        }
+        throw new Error(`unexpected ${method} ${path}`);
+      });
+    }
+
+    it('runs the find→details→user→book sequence with default payment method', async () => {
+      routeBook({ slots: [{ token: 'cfg-7pm', time: '19:00' }] });
+
+      const { result } = await confirmed('resy_book', BOOK_19);
+
+      // phase 1: find, details, user (a preview — nothing else)
+      expect(mockRequest.mock.calls.slice(0, 3).map((c) => c[1].split('?')[0])).toEqual(['/4/find', '/3/details', '/2/user']);
+      // phase 2: the same reads fresh, then the duplicate check and the booking
+      const phase2 = mockRequest.mock.calls.slice(3);
+      expect(phase2).toHaveLength(5);
+
+      expect(phase2[0][0]).toBe('GET');
+      expect(phase2[0][1]).toContain('/4/find?');
+      expect(phase2[1][0]).toBe('GET');
+      expect(phase2[1][1]).toContain('/3/details?');
+      expect(phase2[1][1]).toContain('config_id=cfg-7pm');
+      expect(phase2[2]).toEqual(['GET', '/2/user']);
+      expect(phase2[3]).toEqual(['GET', '/3/user/reservations']);
+
+      const [bookMethod, bookPath, bookBody] = phase2[4];
+      expect(bookMethod).toBe('POST');
+      expect(bookPath).toBe('/3/book');
+      expect(bookBody).toBeInstanceOf(URLSearchParams);
+      const bb = bookBody as URLSearchParams;
+      expect(bb.get('book_token')).toBe('BK-1');
+      expect(JSON.parse(bb.get('struct_payment_method')!)).toEqual({ id: 55 });
+      expect(bb.get('source_id')).toBe('resy.com-venue-details');
+      expect(posts('/3/book')).toHaveLength(1);
+
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toContain('"resy_token":"rr://new"');
+      expect(text).toContain('"venue_url":"https://resy.com/cities/new-york-ny/carbone"');
+    });
+
+    it('rejects malformed desired_time with a clear validation error', async () => {
+      const result = await harness.callTool('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '7pm',
+      });
+      expect(result.isError).toBeTruthy();
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/desired_time/i);
+      expect(mockRequest).not.toHaveBeenCalled();
+    });
+
+    it('does NOT silently book a different time when exact desired_time is missing — even with a confirmToken', async () => {
+      // Only find-slots should run; no details/book — the tool asks the caller
+      // to pick rather than substituting a time they never requested.
+      routeBook({ slots: [{ token: 'cfg-630', time: '18:30' }, { token: 'cfg-730', time: '19:30' }] });
+
+      const result = await harness.callTool('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:15', confirmToken: 'stale',
+      });
+
+      // find only — never /3/details or /3/book
+      expect(mockRequest).toHaveBeenCalledTimes(1);
+      expect(mockRequest.mock.calls[0][1]).toContain('/4/find?');
+      expect(posts('/3/book')).toHaveLength(0);
+
+      const parsed = parse(result);
+      expect(parsed.preview).toBe(true);
+      expect(parsed.booked).toBe(false);
+      expect(parsed.requested_time).toBe('19:15');
+      expect(parsed.available_times).toEqual(['18:30', '19:30']);
+      expect(parsed.note).toMatch(/allow_closest_time/);
+    });
+
+    // fleet-audit#225: the booking call must book the slot the user APPROVED,
+    // not whatever a fresh fetch happens to rank first/closest by then. So a
+    // booking only ever goes ahead for an exact desired_time; anything else is
+    // refused with a fresh preview naming the time to book — a confirmToken
+    // does not get past it.
+    it('allow_closest_time does NOT book a substituted slot, even with a confirmToken — it re-previews', async () => {
+      routeBook({ slots: [{ token: 'cfg-630', time: '18:30' }, { token: 'cfg-730', time: '19:30' }] });
+      const result = await harness.callTool('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:15',
+        // A matching slot_type + terms_token, so the ONLY thing refusing this
+        // booking is the exact-time guard (desired_time && !isClosest).
+        allow_closest_time: true, confirmToken: 'stale', ...DR_CONFIRM,
+      });
+      // 19:30 is closer to 19:15 than 18:30 → previewed via its config token
+      expect(mockRequest.mock.calls[1][1]).toContain('config_id=cfg-730');
+      expect(posts('/3/book')).toHaveLength(0);
+      const parsed = parse(result);
+      expect(parsed.status).toBeUndefined();
+      expect(parsed.preview).toBe(true);
+      expect(parsed.booked).toBe(false);
+      expect(parsed.time).toBe('19:30');
+      expect(parsed.is_closest_match).toBe(true);
+      expect(parsed.note).toMatch(/NOT BOOKED/);
+      expect(parsed.note).toMatch(/desired_time: "19:30"/);
+    });
+
+    it('no desired_time does NOT book the first slot, even with a confirmToken — it re-previews', async () => {
+      // e.g. the user approved a preview showing 17:00; by the booking call
+      // 17:00 is gone and the first slot is now 17:45. Booking slots[0] would
+      // charge for a time nobody approved.
+      routeBook({ slots: [{ token: 'cfg-1745', time: '17:45' }, { token: 'cfg-1900', time: '19:00' }] });
+      const result = await harness.callTool('resy_book', {
+        // Matching slot_type + terms_token: only the missing desired_time refuses it.
+        venue_id: 101, date: '2026-05-01', party_size: 2, confirmToken: 'stale', ...DR_CONFIRM,
+      });
+      expect(posts('/3/book')).toHaveLength(0);
+      const parsed = parse(result);
+      expect(parsed.preview).toBe(true);
+      expect(parsed.booked).toBe(false);
+      expect(parsed.time).toBe('17:45');
+      expect(parsed.note).toMatch(/desired_time: "17:45"/);
+    });
+
+    it('the previewed desired_time books exactly that slot', async () => {
+      routeBook({ slots: [{ token: 'cfg-1745', time: '17:45' }, { token: 'cfg-1900', time: '19:00' }] });
+      await confirmed('resy_book', BOOK_19);
+      expect(mockRequest.mock.calls[1][1]).toContain('config_id=cfg-1900');
+      expect(posts('/3/book')).toHaveLength(1);
+    });
+
+    // fleet-audit#225 (follow-up): a booking is tied to the previewed SLOT, not
+    // just its time. Resy lists several seatings at one time (Dining Room / Bar
+    // / Patio) with different fees; matching on time alone let a confirm book a
+    // same-time Patio slot, with a no-show fee, that nobody previewed.
+    it('a preview returns the slot_type and a terms_token to feed back', async () => {
+      routeBook({
+        slots: [
           { token: 'cfg-dr', time: '17:00', type: 'Dining Room' },
           { token: 'cfg-patio', time: '17:00', type: 'Patio' },
-        ]))
-        .mockResolvedValueOnce(detailsResponse('Dining Room'))
-        .mockResolvedValueOnce({ payment_methods: [{ id: 55, is_default: true }] });
-      const result = await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '17:00',
+        ],
+        details: detailsResponse('Dining Room'),
       });
-      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      const parsed = parse(await harness.callTool('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '17:00',
+      }));
+      expect(parsed.status).toBeUndefined(); // not yet pinned: no token is issued
       expect(parsed.slot_type).toBe('Dining Room');
       expect(parsed.terms_token).toBe(bookingTermsToken('Dining Room', null, null));
       expect(parsed.available_slots).toEqual([
@@ -552,24 +628,25 @@ describe('reservation tools (list/cancel)', () => {
       expect(parsed.note).toContain(`terms_token: "${parsed.terms_token}"`);
     });
 
-    it('confirm does NOT book a same-time slot of a different type when the previewed one is gone', async () => {
-      // Previewed 17:00 Dining Room (no fee). Before the confirm it is taken;
-      // only a 17:00 Patio slot with a $25 no-show fee is left.
-      mockRequest.mockResolvedValueOnce(findResponse([
-        { token: 'cfg-patio', time: '17:00', type: 'Patio' },
-        { token: 'cfg-1900', time: '19:00', type: 'Dining Room' },
-      ]));
-      mockRequest.mockResolvedValueOnce(detailsResponse('Patio', { cancellation: patioFee }));
-      mockRequest.mockResolvedValue({ payment_methods: [{ id: 55, is_default: true }] });
+    it('does NOT book a same-time slot of a different type when the previewed one is gone', async () => {
+      // Previewed 17:00 Dining Room (no fee). Before the booking call it is
+      // taken; only a 17:00 Patio slot with a $25 no-show fee is left.
+      routeBook({
+        slots: [
+          { token: 'cfg-patio', time: '17:00', type: 'Patio' },
+          { token: 'cfg-1900', time: '19:00', type: 'Dining Room' },
+        ],
+        details: detailsResponse('Patio', { cancellation: patioFee }),
+      });
 
       const result = await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '17:00', confirm: true,
+        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '17:00', confirmToken: 'stale',
         slot_type: 'Dining Room', terms_token: bookingTermsToken('Dining Room', null, null),
       });
 
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(false);
+      expect(posts('/3/book')).toHaveLength(0);
       expect(mockRequest.mock.calls.some((c) => String(c[1]).includes('config_id=cfg-patio'))).toBe(false);
-      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      const parsed = parse(result);
       expect(parsed.booked).toBe(false);
       expect(parsed.requested_slot_type).toBe('Dining Room');
       expect(parsed.available_slots).toEqual([
@@ -579,19 +656,18 @@ describe('reservation tools (list/cancel)', () => {
       expect(parsed.note).toMatch(/Dining Room/);
     });
 
-    it('confirm without slot_type does NOT book — it re-previews the slot with its type and terms', async () => {
-      mockRequest
-        .mockResolvedValueOnce(findResponse([
+    it('a confirmToken without slot_type does NOT book — it re-previews the slot with its type and terms', async () => {
+      routeBook({
+        slots: [
           { token: 'cfg-patio', time: '17:00', type: 'Patio' },
           { token: 'cfg-dr', time: '17:00', type: 'Dining Room' },
-        ]))
-        .mockResolvedValueOnce(detailsResponse('Patio', { cancellation: patioFee }))
-        .mockResolvedValueOnce({ payment_methods: [{ id: 55, is_default: true }] });
-      const result = await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '17:00', confirm: true,
+        ],
+        details: detailsResponse('Patio', { cancellation: patioFee }),
       });
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(false);
-      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      const parsed = parse(await harness.callTool('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '17:00', confirmToken: 'stale',
+      }));
+      expect(posts('/3/book')).toHaveLength(0);
       expect(parsed.booked).toBe(false);
       expect(parsed.slot_type).toBe('Patio');
       expect(parsed.cancellation_policy).toEqual(patioFee);
@@ -599,43 +675,44 @@ describe('reservation tools (list/cancel)', () => {
       expect(parsed.note).toMatch(/fee of 25/);
     });
 
-    it('confirm does NOT book when the slot\'s terms changed since the preview', async () => {
+    it('does NOT book when the slot\'s terms changed since the preview — before any token is issued', async () => {
       // Same slot and type, but a no-show fee was added after the preview.
-      mockRequest
-        .mockResolvedValueOnce(findResponse([{ token: 'cfg-dr', time: '17:00', type: 'Dining Room' }]))
-        .mockResolvedValueOnce(detailsResponse('Dining Room', { cancellation: patioFee }))
-        .mockResolvedValueOnce({ payment_methods: [{ id: 55, is_default: true }] });
-      const result = await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '17:00', confirm: true,
-        slot_type: 'Dining Room', terms_token: bookingTermsToken('Dining Room', null, null),
+      routeBook({
+        slots: [{ token: 'cfg-dr', time: '17:00', type: 'Dining Room' }],
+        details: detailsResponse('Dining Room', { cancellation: patioFee }),
       });
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(false);
-      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      const parsed = parse(await harness.callTool('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '17:00',
+        slot_type: 'Dining Room', terms_token: bookingTermsToken('Dining Room', null, null),
+      }));
+      expect(posts('/3/book')).toHaveLength(0);
+      expect(parsed.status).toBeUndefined();
       expect(parsed.booked).toBe(false);
       expect(parsed.note).toMatch(/terms changed/i);
       expect(parsed.terms_token).toBe(bookingTermsToken('Dining Room', patioFee, null));
       expect(parsed.cancellation_policy).toEqual(patioFee);
     });
 
-    it('confirm books the previewed slot type among same-time slots when the terms match', async () => {
-      mockRequest
-        .mockResolvedValueOnce(findResponse([
+    it('books the previewed slot type among same-time slots when the terms match', async () => {
+      routeBook({
+        slots: [
           { token: 'cfg-dr', time: '17:00', type: 'Dining Room' },
           { token: 'cfg-patio', time: '17:00', type: 'Patio' },
-        ]))
-        .mockResolvedValueOnce(detailsResponse('Patio', { cancellation: patioFee }))
-        .mockResolvedValueOnce({ payment_methods: [{ id: 55, is_default: true }] })
-        .mockResolvedValueOnce({ reservations: [], venues: {} })
-        .mockResolvedValueOnce({ resy_token: 'rr://p', reservation_id: 3, time_slot: '17:00', num_seats: 2 });
-      const result = await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '17:00', confirm: true,
+        ],
+        details: (path) => path.includes('config_id=cfg-patio')
+          ? detailsResponse('Patio', { cancellation: patioFee })
+          : detailsResponse('Dining Room'),
+        bookResponse: { resy_token: 'rr://p', reservation_id: 3, time_slot: '17:00', num_seats: 2 },
+      });
+      const { result } = await confirmed('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '17:00',
         slot_type: 'patio', terms_token: bookingTermsToken('Patio', patioFee, null),
       });
       expect(mockRequest.mock.calls[1][1]).toContain('config_id=cfg-patio');
-      const bb = mockRequest.mock.calls[4][2] as URLSearchParams;
+      expect(posts('/3/book')).toHaveLength(1);
+      const bb = posts('/3/book')[0][2] as URLSearchParams;
       expect(bb.get('book_token')).toBe('BK-Patio');
-      const parsed = JSON.parse((result.content[0] as { text: string }).text);
-      expect(parsed.type).toBe('Patio');
+      expect(parse(result).type).toBe('Patio');
     });
 
     it('bookingTermsToken is stable under key order and changes with the terms', () => {
@@ -647,32 +724,30 @@ describe('reservation tools (list/cancel)', () => {
     });
 
     it('uses explicit payment_method_id when provided and skips /2/user', async () => {
-      mockRequest
-        .mockResolvedValueOnce({
-          results: { venues: [{ slots: [{ config: { token: 'cfg', type: 'DR' }, date: { start: '2026-05-01 19:00:00' } }] }] },
-        })
-        .mockResolvedValueOnce({
+      routeBook({
+        slots: [{ token: 'cfg', time: '19:00', type: 'DR' }],
+        details: {
           book_token: { value: 'BK', date_expires: '' },
           venue: { name: 'X', venue_url_slug: 'x', location: { url_slug: 'c' } },
           config: { type: 'DR' },
-        })
-        .mockResolvedValueOnce({ reservations: [], venues: {} })
-        .mockResolvedValueOnce({ resy_token: 'rr://', reservation_id: 1, time_slot: '19:00', num_seats: 2 });
-
-      await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00',
-        payment_method_id: 42, confirm: true,
-        slot_type: 'DR', terms_token: bookingTermsToken('DR', null, null),
+        },
+        bookResponse: { resy_token: 'rr://', reservation_id: 1, time_slot: '19:00', num_seats: 2 },
       });
 
-      expect(mockRequest).toHaveBeenCalledTimes(4); // no /2/user call
+      const { first } = await confirmed('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00',
+        payment_method_id: 42, slot_type: 'DR', terms_token: bookingTermsToken('DR', null, null),
+      });
+
+      expect(first.preview.payment_method).toEqual({ id: 42 });
       expect(mockRequest.mock.calls.some((c) => c[1] === '/2/user')).toBe(false);
-      const bb = mockRequest.mock.calls[3][2] as URLSearchParams;
+      expect(posts('/3/book')).toHaveLength(1);
+      const bb = posts('/3/book')[0][2] as URLSearchParams;
       expect(JSON.parse(bb.get('struct_payment_method')!)).toEqual({ id: 42 });
     });
 
     it('throws when no slots are available', async () => {
-      mockRequest.mockResolvedValueOnce({ results: { venues: [{ slots: [] }] } });
+      routeBook({ slots: [] });
       const result = await harness.callTool('resy_book', {
         venue_id: 101, date: '2026-05-01', party_size: 2,
       });
@@ -682,85 +757,111 @@ describe('reservation tools (list/cancel)', () => {
     });
 
     it('throws when user has no payment methods', async () => {
-      queueBookMocks({ slots: [{ token: 'cfg', time: '19:00' }], paymentMethods: [] });
-      const result = await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00', confirm: true, ...DR_CONFIRM,
-      });
+      routeBook({ slots: [{ token: 'cfg', time: '19:00' }], paymentMethods: [] });
+      const result = await harness.callTool('resy_book', BOOK_19);
       expect(result.isError).toBeTruthy();
       const text = (result.content[0] as { text: string }).text;
       expect(text).toMatch(/no payment method on file/i);
+      expect(posts('/3/book')).toHaveLength(0);
     });
 
-    // ─── confirm gate ─────────────────────────────────────────────────
-    it('without confirm returns a dry-run preview and makes NO /3/book call', async () => {
-      queueBookMocks({
+    // ─── confirmation gate ────────────────────────────────────────────
+    it('phase 1 of a pinned call returns confirmation-required with the full preview and makes NO /3/book call', async () => {
+      routeBook({
         slots: [{ token: 'cfg-7pm', time: '19:00' }],
         paymentMethods: [{ id: 55, is_default: true, last_four: '4242' }],
       });
 
-      const result = await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00',
+      const parsed = parse(await harness.callTool('resy_book', BOOK_19));
+
+      // Reads to build the preview are fine; the mutating POST /3/book must NOT
+      // fire, and the duplicate check belongs to phase 2.
+      expect(posts('/3/book')).toHaveLength(0);
+      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/user/reservations')).toBe(false);
+
+      expect(parsed.status).toBe('confirmation-required');
+      expect(parsed.action).toBe('resy.book');
+      const p = parsed.preview;
+      expect(p.preview).toBe(true);
+      expect(p.booked).toBe(false);
+      expect(p.action).toBe('book');
+      expect(p.time).toBe('19:00'); // exact slot time that would be booked
+      expect(p.venue_name).toBe('Carbone');
+      expect(p.venue_url).toBe('https://resy.com/cities/new-york-ny/carbone');
+      expect(p.date).toBe('2026-05-01');
+      expect(p.party_size).toBe(2);
+      expect(p.requested_time).toBe('19:00');
+      expect(p.is_closest_match).toBe(false);
+      expect(p.available_times).toEqual(['19:00']);
+      expect(p.available_slots).toEqual([{ time: '19:00', slot_type: 'Dining Room' }]);
+      expect(p.slot_type).toBe('Dining Room');
+      expect(p.terms_token).toBe(DR_CONFIRM.terms_token);
+      expect(p.payment_method).toEqual({ id: 55, last4: '4242' });
+      expect(p.cancellation_policy).toBeNull();
+      expect(p.payment_terms).toBeNull();
+      expect(p.note).toMatch(/nothing was booked/i);
+    });
+
+    it('an unpinned call returns a preview naming the exact slot to book', async () => {
+      routeBook({
+        slots: [{ token: 'cfg-7pm', time: '19:00' }],
+        paymentMethods: [{ id: 55, is_default: true, last_four: '4242' }],
       });
 
-      // Reads to build the preview are fine; the mutating POST /3/book must NOT fire.
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(false);
+      const parsed = parse(await harness.callTool('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00',
+      }));
 
-      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(posts('/3/book')).toHaveLength(0);
+      expect(parsed.status).toBeUndefined();
       expect(parsed.preview).toBe(true);
       expect(parsed.booked).toBe(false);
       expect(parsed.action).toBe('book');
-      expect(parsed.time).toBe('19:00'); // exact slot time that would be booked
+      expect(parsed.time).toBe('19:00');
       expect(parsed.venue_name).toBe('Carbone');
       expect(parsed.party_size).toBe(2);
       expect(parsed.is_closest_match).toBe(false);
       expect(parsed.payment_method).toEqual({ id: 55, last4: '4242' });
-      expect(parsed.note).toMatch(/confirm: true/);
+      expect(parsed.note).toMatch(/nothing was booked/i);
+      expect(parsed.note).toContain('desired_time: "19:00"');
+      expect(parsed.note).not.toMatch(/confirm: true/);
     });
 
     it('preview takes the first available slot and reports requested_time:null when desired_time is omitted', async () => {
-      queueBookMocks({
-        slots: [
-          { token: 'cfg-630', time: '18:30' },
-          { token: 'cfg-730', time: '19:30' },
-        ],
+      routeBook({
+        slots: [{ token: 'cfg-630', time: '18:30' }, { token: 'cfg-730', time: '19:30' }],
         paymentMethods: [{ id: 55, is_default: true, last_four: '4242' }],
       });
 
-      const result = await harness.callTool('resy_book', {
+      const parsed = parse(await harness.callTool('resy_book', {
         venue_id: 101, date: '2026-05-01', party_size: 2,
-      });
+      }));
 
       // Read-only preview: the mutating POST /3/book must NOT fire.
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(false);
+      expect(posts('/3/book')).toHaveLength(0);
       // First-slot fallback resolves against the FIRST slot's config token.
       expect(mockRequest.mock.calls[1][1]).toContain('config_id=cfg-630');
 
-      const parsed = JSON.parse((result.content[0] as { text: string }).text);
       expect(parsed.preview).toBe(true);
       expect(parsed.booked).toBe(false);
       expect(parsed.time).toBe('18:30'); // first available slot
       expect(parsed.requested_time).toBe(null); // desired_time omitted
       expect(parsed.is_closest_match).toBe(false);
       expect(parsed.available_times).toEqual(['18:30', '19:30']);
-      expect(parsed.note).toMatch(/confirm: true/);
+      expect(parsed.note).toContain('desired_time: "18:30"');
     });
 
-    it('preview flags a closest-time substitution when allow_closest_time:true but not confirmed', async () => {
-      queueBookMocks({
-        slots: [
-          { token: 'cfg-630', time: '18:30' },
-          { token: 'cfg-730', time: '19:30' },
-        ],
-        paymentMethods: [{ id: 55, is_default: true }],
+    it('preview flags a closest-time substitution when allow_closest_time:true', async () => {
+      routeBook({
+        slots: [{ token: 'cfg-630', time: '18:30' }, { token: 'cfg-730', time: '19:30' }],
       });
 
-      const result = await harness.callTool('resy_book', {
+      const parsed = parse(await harness.callTool('resy_book', {
         venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:15',
         allow_closest_time: true,
-      });
+      }));
 
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(false);
-      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      expect(posts('/3/book')).toHaveLength(0);
       expect(parsed.preview).toBe(true);
       expect(parsed.is_closest_match).toBe(true);
       expect(parsed.time).toBe('19:30');
@@ -770,44 +871,49 @@ describe('reservation tools (list/cancel)', () => {
 
     // fleet-audit#226: /3/details carries the slot's cancellation and payment
     // terms (no-show fee, deposit, cut-off). The preview used to drop them, so
-    // confirm:true could commit the card to a fee the user never saw.
+    // a booking could commit the card to a fee the user never saw.
     it('preview surfaces the slot\'s cancellation fee and payment terms from /3/details', async () => {
       const cancellation = {
         fee: { amount: 50, date_cut_off: '2026-04-30T19:00:00Z', display: { amount: '$50 per person' } },
         display: { policy: ['Cancel by 7pm the day before to avoid a $50 per person fee.'] },
       };
       const payment = { amounts: { reservation_charge: 0, total: 0 }, config: { type: 'free' } };
-      mockRequest
-        .mockResolvedValueOnce({
-          results: { venues: [{ slots: [{ config: { token: 'cfg', type: 'DR' }, date: { start: '2026-05-01 19:00:00' } }] }] },
-        })
-        .mockResolvedValueOnce({
+      routeBook({
+        slots: [{ token: 'cfg', time: '19:00', type: 'DR' }],
+        details: {
           book_token: { value: 'BK' },
           venue: { name: 'Carbone', venue_url_slug: 'carbone', location: { url_slug: 'new-york-ny' } },
           config: { type: 'DR' },
           cancellation,
           payment,
-        })
-        .mockResolvedValueOnce({ payment_methods: [{ id: 55, is_default: true }] });
-
-      const result = await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00',
+        },
       });
 
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(false);
-      const parsed = JSON.parse((result.content[0] as { text: string }).text);
-      expect(parsed.cancellation_policy).toEqual(cancellation);
-      expect(parsed.payment_terms).toEqual(payment);
-      expect(parsed.note).toMatch(/no-show fee of 50/i);
-      expect(parsed.note).toMatch(/2026-04-30T19:00:00Z/);
+      const unpinned = parse(await harness.callTool('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00',
+      }));
+      expect(unpinned.cancellation_policy).toEqual(cancellation);
+      expect(unpinned.payment_terms).toEqual(payment);
+      expect(unpinned.note).toMatch(/no-show fee of 50/i);
+      expect(unpinned.note).toMatch(/2026-04-30T19:00:00Z/);
+
+      // …and so does the preview a confirmation is asked against.
+      const gated = parse(await harness.callTool('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00',
+        slot_type: 'DR', terms_token: unpinned.terms_token,
+      }));
+      expect(gated.status).toBe('confirmation-required');
+      expect(gated.preview.cancellation_policy).toEqual(cancellation);
+      expect(gated.preview.payment_terms).toEqual(payment);
+      expect(gated.preview.note).toMatch(/no-show fee of 50/i);
+      expect(posts('/3/book')).toHaveLength(0);
     });
 
     it('preview says the terms are unknown when /3/details returns none', async () => {
-      queueBookMocks({ slots: [{ token: 'cfg-7pm', time: '19:00' }] });
-      const result = await harness.callTool('resy_book', {
+      routeBook({ slots: [{ token: 'cfg-7pm', time: '19:00' }] });
+      const parsed = parse(await harness.callTool('resy_book', {
         venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00',
-      });
-      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      }));
       expect(parsed.cancellation_policy).toBeNull();
       expect(parsed.payment_terms).toBeNull();
       expect(parsed.note).not.toMatch(/cancellation fee/i);
@@ -815,10 +921,10 @@ describe('reservation tools (list/cancel)', () => {
 
     // fleet-audit#227: a POST /3/book that outlives the MCP client's timeout
     // looks like a failure to the model while the booking completes on Resy's
-    // side; the natural retry then books twice. A confirm therefore checks for
-    // an existing reservation at the same venue + date first.
-    it('confirm:true refuses when a reservation already exists at the same venue and date', async () => {
-      queueBookMocks({
+    // side; the natural retry then books twice. The booking call therefore
+    // checks for an existing reservation at the same venue + date first.
+    it('refuses when a reservation already exists at the same venue and date', async () => {
+      routeBook({
         slots: [{ token: 'cfg-7pm', time: '19:00' }],
         existingReservations: {
           reservations: [
@@ -827,11 +933,9 @@ describe('reservation tools (list/cancel)', () => {
           venues: { '101': { name: 'Carbone' } },
         },
       });
-      const result = await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00', confirm: true, ...DR_CONFIRM,
-      });
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(false);
-      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      const { result } = await confirmed('resy_book', BOOK_19);
+      expect(posts('/3/book')).toHaveLength(0);
+      const parsed = parse(result);
       expect(parsed.booked).toBe(false);
       expect(parsed.existing_reservations).toHaveLength(1);
       expect(parsed.existing_reservations[0].resy_token).toBe('rr://earlier');
@@ -842,10 +946,11 @@ describe('reservation tools (list/cancel)', () => {
       expect(parsed.note).toContain('desired_time: "19:00"');
       expect(parsed.note).toContain('slot_type: "Dining Room"');
       expect(parsed.note).toContain(`terms_token: "${DR_CONFIRM.terms_token}"`);
+      expect(parsed.note).not.toMatch(/confirm: true/);
     });
 
-    it('confirm:true ignores reservations at other venues or on other dates', async () => {
-      queueBookMocks({
+    it('ignores reservations at other venues or on other dates', async () => {
+      routeBook({
         slots: [{ token: 'cfg-7pm', time: '19:00' }],
         existingReservations: {
           reservations: [
@@ -854,36 +959,87 @@ describe('reservation tools (list/cancel)', () => {
           ],
         },
       });
-      await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00', confirm: true, ...DR_CONFIRM,
-      });
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(true);
+      await confirmed('resy_book', BOOK_19);
+      expect(posts('/3/book')).toHaveLength(1);
     });
 
     it('allow_duplicate:true books despite an existing reservation at the venue that day', async () => {
-      queueBookMocks({
+      routeBook({
         slots: [{ token: 'cfg-7pm', time: '19:00' }],
         existingReservations: {
           reservations: [{ resy_token: 'rr://earlier', venue: { id: 101 }, day: '2026-05-01' }],
         },
       });
-      await harness.callTool('resy_book', {
-        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00',
-        allow_duplicate: true, confirm: true, ...DR_CONFIRM,
-      });
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/book')).toBe(true);
+      await confirmed('resy_book', { ...BOOK_19, allow_duplicate: true });
+      expect(posts('/3/book')).toHaveLength(1);
     });
 
     it('preview shows only the payment id when the card exposes no last-4', async () => {
-      queueBookMocks({
+      routeBook({
         slots: [{ token: 'cfg-7pm', time: '19:00' }],
         paymentMethods: [{ id: 77, is_default: true }],
       });
-      const result = await harness.callTool('resy_book', {
+      const parsed = parse(await harness.callTool('resy_book', {
         venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00',
-      });
-      const parsed = JSON.parse((result.content[0] as { text: string }).text);
+      }));
       expect(parsed.payment_method).toEqual({ id: 77 });
+    });
+
+    it('replaying a used confirmToken is refused as TOKEN_REUSED and books nothing more', async () => {
+      routeBook({ slots: [{ token: 'cfg-7pm', time: '19:00' }] });
+      const { first } = await confirmed('resy_book', BOOK_19);
+      expect(posts('/3/book')).toHaveLength(1);
+
+      const replay = await harness.callTool('resy_book', { ...BOOK_19, confirmToken: first.confirmToken });
+      expect(replay.isError).toBe(true);
+      expect(parse(replay).error).toBe('TOKEN_REUSED');
+      expect(posts('/3/book')).toHaveLength(1);
+    });
+
+    it('changing an argument between the phases is refused as DRAFT_CHANGED and books nothing', async () => {
+      routeBook({ slots: [{ token: 'cfg-7pm', time: '19:00' }] });
+      const first = parse(await harness.callTool('resy_book', BOOK_19));
+      expect(first.status).toBe('confirmation-required');
+
+      const changed = await harness.callTool('resy_book', { ...BOOK_19, party_size: 4, confirmToken: first.confirmToken });
+      expect(changed.isError).toBe(true);
+      const parsed = parse(changed);
+      expect(parsed.error).toBe('DRAFT_CHANGED');
+      expect(parsed.preview.party_size).toBe(4);
+      expect(typeof parsed.confirmToken).toBe('string');
+      expect(posts('/3/book')).toHaveLength(0);
+    });
+
+    it('a client that can be prompted books once on accept, with no token', async () => {
+      routeBook({ slots: [{ token: 'cfg-7pm', time: '19:00' }] });
+      const h = await promptingHarness('accept');
+      try {
+        const result = await h.callTool('resy_book', BOOK_19);
+        expect(result.isError).toBeFalsy();
+        expect(parse(result).resy_token).toBe('rr://new');
+        expect(posts('/3/book')).toHaveLength(1);
+      } finally {
+        await h.close();
+      }
+    });
+
+    it('a client that can be prompted books nothing on decline', async () => {
+      routeBook({ slots: [{ token: 'cfg-7pm', time: '19:00' }] });
+      const h = await promptingHarness('decline');
+      try {
+        await h.callTool('resy_book', BOOK_19);
+        expect(posts('/3/book')).toHaveLength(0);
+      } finally {
+        await h.close();
+      }
+    });
+
+    it('MCP_CONFIRM_MODE=refuse refuses on a client that cannot be prompted, and books nothing', async () => {
+      process.env.MCP_CONFIRM_MODE = 'refuse';
+      routeBook({ slots: [{ token: 'cfg-7pm', time: '19:00' }] });
+      const parsed = parse(await harness.callTool('resy_book', BOOK_19));
+      expect(parsed.reason).toBe('confirmation-unsupported');
+      expect(posts('/3/book')).toHaveLength(0);
     });
   });
 });
