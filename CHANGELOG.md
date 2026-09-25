@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/chrischall/resy-mcp/compare/v1.2.0...v1.2.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* **deps:** bump dotenv from 17.4.2 to 18.0.2 in the production-majors group ([#245](https://github.com/chrischall/resy-mcp/issues/245)) ([3be6f84](https://github.com/chrischall/resy-mcp/commit/3be6f84e2bd3eb6a15eaa685dbd971a5c6e633cb))
+
 ## [1.2.0](https://github.com/chrischall/resy-mcp/compare/v1.1.3...v1.2.0) (2026-09-24)
 
 
