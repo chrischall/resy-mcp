@@ -43,20 +43,20 @@
     "resy_email": {
       "type": "string",
       "title": "Resy Email (optional)",
-      "description": "Your Resy account email. Leave blank to use the fetchproxy browser bridge instead.",
+      "description": "Your Resy account email. Leave blank to use the ContextMint Bridge browser extension instead.",
       "required": false
     },
     "resy_password": {
       "type": "string",
       "title": "Resy Password (optional)",
-      "description": "Your Resy account password. Leave blank to use the fetchproxy browser bridge instead.",
+      "description": "Your Resy account password. Leave blank to use the ContextMint Bridge browser extension instead.",
       "required": false,
       "sensitive": true
     },
     "resy_auth_token": {
       "type": "string",
       "title": "Resy Auth Token (optional override)",
-      "description": "Pre-obtained x-resy-auth-token. Overrides email/password and the fetchproxy bridge. Power users / CI only.",
+      "description": "Pre-obtained x-resy-auth-token. Overrides email/password and the ContextMint Bridge path. Power users / CI only.",
       "required": false,
       "sensitive": true
     }
