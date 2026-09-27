@@ -55,7 +55,9 @@ Pick one of three auth paths. The client tries them in this priority order:
 
 1. **`RESY_AUTH_TOKEN`** — pre-obtained `x-resy-auth-token`. Overrides everything; useful for CI or power users who already have a token.
 2. **`RESY_EMAIL` + `RESY_PASSWORD`** — the classic flow. POSTs `/3/auth/password` and caches the returned token.
-3. **fetchproxy fallback** — when no env vars are set, the server uses the [fetchproxy](https://github.com/chrischall/fetchproxy) browser bridge to call `/3/auth/refresh` through your signed-in resy.com tab. Install the ContextMint Bridge extension once from its [releases page](https://github.com/nullnet-app/contextmint-bridge/releases) (Chrome: unzip the Chrome build and load it unpacked at `chrome://extensions`; Safari: it ships inside the ContextMint app), sign into resy.com, and that's it — no credentials in env.
+3. **fetchproxy fallback** — when no env vars are set, the server uses the [fetchproxy](https://github.com/chrischall/fetchproxy) browser bridge to call `/3/auth/refresh` through your signed-in resy.com tab. Install the ContextMint Bridge extension once from its [releases page](https://github.com/nullnet-app/contextmint-bridge/releases) (unzip the Chrome build and load it unpacked at `chrome://extensions`; Safari isn't available yet — it will ship inside the ContextMint app, which has no public download — so use Chrome for now), sign into resy.com, and that's it — no credentials in env.
+
+   ContextMint Bridge is the fetchproxy browser extension under its new name, from the same maintainer — fetchproxy's own [README](https://github.com/chrischall/fetchproxy#extension) points to it. Its source is public at [nullnet-app/contextmint-bridge](https://github.com/nullnet-app/contextmint-bridge): build it yourself, or check a release zip against the `.sha256` file published beside it (`shasum -a 256 -c contextmint-bridge-chrome-<version>.zip.sha256`).
 
 Copy `.env.example` to `.env` and fill in whichever path you want:
 

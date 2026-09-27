@@ -16,20 +16,20 @@ env:
   - name: RESY_EMAIL
     required: false
     help: >-
-      Your Resy account email. Optional — leave unset to use the fetchproxy
-      browser bridge instead.
+      Your Resy account email. Optional — leave unset to use the ContextMint
+      Bridge browser extension instead.
   - name: RESY_PASSWORD
     secret: true
     required: false
     help: >-
-      Your Resy account password. Optional — leave unset to use the fetchproxy
-      browser bridge instead.
+      Your Resy account password. Optional — leave unset to use the ContextMint
+      Bridge browser extension instead.
   - name: RESY_AUTH_TOKEN
     secret: true
     required: false
     help: >-
       Pre-obtained x-resy-auth-token. Overrides email/password and the
-      fetchproxy bridge. Power users / CI only.
+      ContextMint Bridge path. Power users / CI only.
   - name: RESY_DISABLE_FETCHPROXY
     required: false
     help: >-

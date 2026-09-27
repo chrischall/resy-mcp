@@ -18,20 +18,20 @@
       "environmentVariables": [
         {
           "name": "RESY_EMAIL",
-          "description": "Your Resy account email. Optional — leave unset to use the fetchproxy browser bridge instead.",
+          "description": "Your Resy account email. Optional — leave unset to use the ContextMint Bridge browser extension instead.",
           "isRequired": false,
           "format": "string"
         },
         {
           "name": "RESY_PASSWORD",
-          "description": "Your Resy account password. Optional — leave unset to use the fetchproxy browser bridge instead.",
+          "description": "Your Resy account password. Optional — leave unset to use the ContextMint Bridge browser extension instead.",
           "isRequired": false,
           "format": "string",
           "isSecret": true
         },
         {
           "name": "RESY_AUTH_TOKEN",
-          "description": "Pre-obtained x-resy-auth-token. Overrides email/password and the fetchproxy bridge. Power users / CI only.",
+          "description": "Pre-obtained x-resy-auth-token. Overrides email/password and the ContextMint Bridge path. Power users / CI only.",
           "isRequired": false,
           "format": "string",
           "isSecret": true
