@@ -98,7 +98,7 @@ RESY_CAPTURE_TIMEOUT=<secs>   # Seconds to wait for the page to make an API
                               #   derived from this, never left at the library
                               #   default — see auth-fetchproxy.ts.
 RESY_WS_PORT=<port>           # fetchproxy bridge port. Defaults to 37149, the
-                              #   port the WHOLE fleet shares (the Transporter
+                              #   port the WHOLE fleet shares (the ContextMint Bridge
                               #   extension dials it). Override for local dev,
                               #   test isolation, or a hosted bridged
                               #   registration — this is the variable mcp-host

@@ -28,7 +28,7 @@ Resy reservation management as an MCP server for Claude — search restaurants, 
 
 By using this MCP server, you acknowledge and agree to the following:
 
-**1. This server accesses your own Resy account.** Auth happens via your own credentials (email/password) or your own signed-in browser session through the fetchproxy extension. It does not — and cannot — access anyone else's reservations.
+**1. This server accesses your own Resy account.** Auth happens via your own credentials (email/password) or your own signed-in browser session through the ContextMint Bridge extension. It does not — and cannot — access anyone else's reservations.
 
 **2. [Resy's Terms of Service](https://resy.com/terms) govern your use of this server**, just as they govern your direct use of resy.com. Resy's ToS prohibits the use of bots and automated booking, enforces rate limits, deploys CAPTCHA, and states that automated booking bots can result in account bans. Reservations are not transferable and may not be resold.
 
@@ -55,7 +55,7 @@ Pick one of three auth paths. The client tries them in this priority order:
 
 1. **`RESY_AUTH_TOKEN`** — pre-obtained `x-resy-auth-token`. Overrides everything; useful for CI or power users who already have a token.
 2. **`RESY_EMAIL` + `RESY_PASSWORD`** — the classic flow. POSTs `/3/auth/password` and caches the returned token.
-3. **fetchproxy fallback** — when no env vars are set, the server uses the [fetchproxy](https://github.com/chrischall/fetchproxy) browser bridge to call `/3/auth/refresh` through your signed-in resy.com tab. Install the fetchproxy extension once (Chrome Web Store or Safari `.dmg`), sign into resy.com, and that's it — no credentials in env.
+3. **fetchproxy fallback** — when no env vars are set, the server uses the [fetchproxy](https://github.com/chrischall/fetchproxy) browser bridge to call `/3/auth/refresh` through your signed-in resy.com tab. Install the ContextMint Bridge extension once from its [releases page](https://github.com/nullnet-app/contextmint-bridge/releases) (Chrome: unzip the Chrome build and load it unpacked at `chrome://extensions`; Safari: it ships inside the ContextMint app), sign into resy.com, and that's it — no credentials in env.
 
 Copy `.env.example` to `.env` and fill in whichever path you want:
 
@@ -71,7 +71,7 @@ RESY_AUTH_TOKEN=...
 RESY_DISABLE_FETCHPROXY=1
 ```
 
-For MCPB / Claude Desktop install, the packaged manifest prompts for all three optional inputs — leave them blank to route through the fetchproxy extension instead.
+For MCPB / Claude Desktop install, the packaged manifest prompts for all three optional inputs — leave them blank to route through ContextMint Bridge instead.
 
 ## Confirmations
 

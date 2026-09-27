@@ -36,7 +36,7 @@ export function registerHealthcheckTools(server: McpServer, client: ResyClient):
       err instanceof ResyAuthError ? { kind: 'credential_rejected' } : undefined,
     hints: {
       no_credential:
-        'No Resy auth path is configured. Set RESY_EMAIL + RESY_PASSWORD, set RESY_AUTH_TOKEN directly, or install the fetchproxy extension and sign into resy.com (and leave RESY_DISABLE_FETCHPROXY unset).',
+        'No Resy auth path is configured. Set RESY_EMAIL + RESY_PASSWORD, set RESY_AUTH_TOKEN directly, or install the ContextMint Bridge browser extension and sign into resy.com (and leave RESY_DISABLE_FETCHPROXY unset).',
       credential_rejected:
         'Resy rejected the minted token. If you are on the password path, check RESY_EMAIL/RESY_PASSWORD; on the fetchproxy path, re-sign in at resy.com so a fresh session can be lifted.',
     },
