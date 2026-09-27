@@ -56,7 +56,7 @@ const PACKAGE_VERSION = '1.2.1'; // x-release-please-version
 /**
  * The fetchproxy concentrator port.
  *
- * ONE port for the whole fleet: the Transporter extension dials it and the
+ * ONE port for the whole fleet: the ContextMint Bridge extension dials it and the
  * servers host/peer-elect on it, so a "unique" per-MCP default would simply not
  * be found. `RESY_WS_PORT` overrides it for local development, test isolation —
  * and, the reason it exists at all, for a HOSTED bridged registration, where

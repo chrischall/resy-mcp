@@ -259,7 +259,7 @@ describe('ResyClient', () => {
 
       const client = new ResyClient();
       await expect(client.request('GET', '/x')).rejects.toThrow(
-        /set RESY_EMAIL.*RESY_PASSWORD.*RESY_AUTH_TOKEN.*fetchproxy/
+        /set RESY_EMAIL.*RESY_PASSWORD.*RESY_AUTH_TOKEN.*ContextMint Bridge/
       );
       expect(mintTokenViaFetchproxy).not.toHaveBeenCalled();
     }
@@ -272,7 +272,7 @@ describe('ResyClient', () => {
 
     const client = new ResyClient();
     await expect(client.request('GET', '/x')).rejects.toThrow(
-      /set RESY_EMAIL.*RESY_PASSWORD.*RESY_AUTH_TOKEN.*fetchproxy/
+      /set RESY_EMAIL.*RESY_PASSWORD.*RESY_AUTH_TOKEN.*ContextMint Bridge/
     );
     expect(mintTokenViaFetchproxy).not.toHaveBeenCalled();
   });
@@ -284,7 +284,7 @@ describe('ResyClient', () => {
 
     const client = new ResyClient();
     await expect(client.request('GET', '/x')).rejects.toThrow(
-      /fetchproxy fallback failed.*no signed-in tab.*RESY_EMAIL.*RESY_AUTH_TOKEN/s
+      /fetchproxy fallback failed.*no signed-in tab.*RESY_EMAIL.*RESY_AUTH_TOKEN.*ContextMint Bridge/s
     );
   });
 
@@ -563,7 +563,7 @@ describe('ResyClient', () => {
 
       const client = new ResyClient();
       await expect(client.request('GET', '/x')).rejects.toThrow(
-        /set RESY_EMAIL.*RESY_AUTH_TOKEN.*fetchproxy/s
+        /set RESY_EMAIL.*RESY_AUTH_TOKEN.*ContextMint Bridge/s
       );
       expect(mintTokenViaFetchproxy).not.toHaveBeenCalled();
     });

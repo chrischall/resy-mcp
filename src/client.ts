@@ -305,14 +305,14 @@ export class ResyClient {
         throw new Error(
           `Resy auth: fetchproxy fallback failed (${(e as Error).message}). ` +
             `Set RESY_EMAIL + RESY_PASSWORD, set RESY_AUTH_TOKEN directly, ` +
-            `or install the fetchproxy extension and sign into resy.com.`
+            `or install the ContextMint Bridge browser extension and sign into resy.com.`
         );
       }
     }
 
     throw new Error(
       'Resy auth: set RESY_EMAIL + RESY_PASSWORD, set RESY_AUTH_TOKEN, ' +
-        'or install the fetchproxy extension and sign into resy.com.'
+        'or install the ContextMint Bridge browser extension and sign into resy.com.'
     );
   }
 

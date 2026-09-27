@@ -46,7 +46,7 @@ One-time setup:
 ```sh
 npm install -g @fetchproxy/cli            # provides `fpx`
 fpx profile add resy --domain resy.com
-fpx pair -p resy                          # prints a pair code → approve in Transporter
+fpx pair -p resy                          # prints a pair code → approve in ContextMint Bridge
 ```
 
 Then bootstrap the token through the tab (this replicates the one call

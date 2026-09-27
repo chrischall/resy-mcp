@@ -378,7 +378,7 @@ describe('mintTokenViaFetchproxy', () => {
       mockPostJson.mockResolvedValue({ token: 'tok' });
       await mintTokenViaFetchproxy();
       const opts = mockConstructor.mock.calls[0][0] as { port?: number };
-      // ONE port for the whole fleet — the Transporter extension dials it and
+      // ONE port for the whole fleet — the ContextMint Bridge extension dials it and
       // servers peer-elect on it. A "unique" per-MCP default would be a bug.
       expect(opts.port).toBe(37_149);
     });
