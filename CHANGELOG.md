@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.2](https://github.com/chrischall/resy-mcp/compare/v1.2.1...v1.2.2) (2026-09-27)
+
+
+### Bug Fixes
+
+* **deps:** bump the production-dependencies group with 3 updates ([#249](https://github.com/chrischall/resy-mcp/issues/249)) ([19eaadb](https://github.com/chrischall/resy-mcp/commit/19eaadb3f852448caf0fe00a00c33a88870ddb66))
+* **deps:** move to [@fetchproxy](https://github.com/fetchproxy) 3.4 for ContextMint Bridge errors, capability subsets and managed pins ([#251](https://github.com/chrischall/resy-mcp/issues/251)) ([1c5593a](https://github.com/chrischall/resy-mcp/commit/1c5593afbeb82d46a17a47f26ec506073f1acfb0))
+* **deps:** move to @chrischall/mcp-utils 2.8 and [@fetchproxy](https://github.com/fetchproxy) 3.4.1 for clearer browser-bridge errors ([#252](https://github.com/chrischall/resy-mcp/issues/252)) ([66952f3](https://github.com/chrischall/resy-mcp/commit/66952f33c8fed8b888cc0885806e48392d6de8b3))
+
 ## [1.2.1](https://github.com/chrischall/resy-mcp/compare/v1.2.0...v1.2.1) (2026-09-25)
 
 
