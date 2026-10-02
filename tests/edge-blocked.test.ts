@@ -16,6 +16,7 @@ vi.mock('../src/auth-fetchproxy.js', () => ({ mintTokenViaFetchproxy }));
 
 const { ResyClient } = await import('../src/client.js');
 const { registerHealthcheckTools } = await import('../src/tools/healthcheck.js');
+const { EdgeBlockedError } = await import('@chrischall/mcp-utils');
 
 // CloudFront's block page, as served (whitespace trimmed, ids made up).
 const CLOUDFRONT_BLOCK =
@@ -113,18 +114,146 @@ describe('a CloudFront block reads as edge_blocked, not a rejected credential', 
     expect(r.error?.kind).toBe('credential_rejected');
   });
 
-  it('the thrown error carries a bounded excerpt, never the whole page', async () => {
+  it('a blocked request throws EdgeBlockedError naming the vendor, never the whole page', async () => {
     fetchMock.mockResolvedValue(blocked());
 
-    const err = (await new ResyClient().request('GET', '/2/user').catch((e: unknown) => e)) as {
-      message: string;
-      status?: number;
-      bodyPreview?: string;
-    };
+    const err = await new ResyClient().request('GET', '/2/user').catch((e: unknown) => e);
 
-    expect(err.message).toMatch(/Resy API error: 403 Forbidden for GET \/2\/user/);
-    expect(err.status).toBe(403);
-    expect(err.bodyPreview).toMatch(/The request could not be satisfied/);
-    expect(err.bodyPreview!.length).toBeLessThan(CLOUDFRONT_BLOCK.length);
+    expect(err).toBeInstanceOf(EdgeBlockedError);
+    const e = err as InstanceType<typeof EdgeBlockedError>;
+    expect(e.status).toBe(403);
+    expect(e.vendor).toBe('CloudFront');
+    expect(e.message).toMatch(/GET \/2\/user/);
+    expect(e.message).not.toMatch(/Request ID/);
+  });
+});
+
+/**
+ * A block page served with a 401 (or one only its BODY identifies) used to slip
+ * past TokenManager's own block check: `request` reads the body inside the
+ * withAuth callback, so the Response withAuth inspects has nothing left to
+ * read. It then spent a re-mint (a real password login, or a bridge round
+ * trip) and reported `credential_rejected`. The block must be recognised where
+ * the body is still in hand.
+ */
+describe('a 401 block page never spends a re-mint (chrischall/mcp-host#1015)', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  // Body-only: no x-cache / server / cf-mitigated header says "CloudFront".
+  function blocked401(): Response {
+    return {
+      ok: false,
+      status: 401,
+      statusText: 'Unauthorized',
+      headers: new Headers({ 'content-type': 'text/html' }),
+      text: async () => CLOUDFRONT_BLOCK,
+    } as unknown as Response;
+  }
+  const login = (): Response =>
+    ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers({ 'content-type': 'application/json' }),
+      text: async () => JSON.stringify({ token: 'minted' }),
+    }) as unknown as Response;
+  const logins = (): number =>
+    fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/3/auth/password')).length;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    delete process.env.RESY_AUTH_TOKEN;
+    process.env.RESY_EMAIL = 'test@example.com';
+    process.env.RESY_PASSWORD = 'pw';
+    process.env.RESY_DISABLE_FETCHPROXY = '1';
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.RESY_EMAIL;
+    delete process.env.RESY_PASSWORD;
+    delete process.env.RESY_DISABLE_FETCHPROXY;
+  });
+
+  it('throws EdgeBlockedError after ONE login, with no re-mint or replay', async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).endsWith('/3/auth/password') ? login() : blocked401()
+    );
+
+    const err = await new ResyClient().request('GET', '/2/user').catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(EdgeBlockedError);
+    expect((err as InstanceType<typeof EdgeBlockedError>).status).toBe(401);
+    expect(logins()).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('the healthcheck reports edge_blocked, not credential_rejected', async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).endsWith('/3/auth/password') ? login() : blocked401()
+    );
+
+    const r = await healthcheck(new ResyClient());
+
+    expect(r.error?.kind).toBe('edge_blocked');
+    expect(logins()).toBe(1);
+  });
+
+  it('a block on the 429 backoff retry is EdgeBlockedError too', async () => {
+    vi.useFakeTimers();
+    try {
+      let api = 0;
+      fetchMock.mockImplementation(async (url: string) => {
+        if (String(url).endsWith('/3/auth/password')) return login();
+        api += 1;
+        return api === 1
+          ? ({
+              ok: false,
+              status: 429,
+              statusText: 'Too Many Requests',
+              headers: new Headers({ 'retry-after': '1' }),
+              text: async () => '',
+            } as unknown as Response)
+          : blocked401();
+      });
+
+      const pending = new ResyClient().request('GET', '/2/user').catch((e: unknown) => e);
+      await vi.runAllTimersAsync();
+      const err = await pending;
+
+      expect(err).toBeInstanceOf(EdgeBlockedError);
+      expect(logins()).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a block on the password login itself is EdgeBlockedError', async () => {
+    fetchMock.mockImplementation(async () => blocked401());
+
+    const err = await new ResyClient().request('GET', '/2/user').catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(EdgeBlockedError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('control: a genuine 401 from Resy still re-mints once and reads credential_rejected', async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).endsWith('/3/auth/password')
+        ? login()
+        : ({
+            ok: false,
+            status: 401,
+            statusText: 'Unauthorized',
+            headers: new Headers({ 'content-type': 'application/json' }),
+            text: async () => JSON.stringify({ message: 'Unauthorized' }),
+          } as unknown as Response)
+    );
+
+    const r = await healthcheck(new ResyClient());
+
+    expect(r.error?.kind).toBe('credential_rejected');
+    expect(logins()).toBe(2);
   });
 });
