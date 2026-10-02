@@ -203,9 +203,7 @@ export class ResyClient {
     }
 
     if (!ok) {
-      throw new Error(
-        `Resy API error: ${status} ${statusText} for ${method} ${path}`
-      );
+      throw new ResyApiError(status, statusText, method, path, text);
     }
 
     return (text ? JSON.parse(text) : null) as T;
@@ -236,9 +234,7 @@ export class ResyClient {
       throw new ResyAuthError();
     }
     if (!res.ok) {
-      throw new Error(
-        `Resy API error: ${res.status} ${res.statusText} for ${method} ${path}`
-      );
+      throw new ResyApiError(res.status, res.statusText, method, path, text);
     }
     return (text ? JSON.parse(text) : null) as T;
   }
@@ -354,6 +350,26 @@ export class ResyClient {
       );
     }
     return token;
+  }
+}
+
+/**
+ * A non-2xx, non-auth answer from api.resy.com. The message is unchanged from
+ * the plain Error it replaces; what it adds is what the shared credential
+ * healthcheck reads to tell a CDN/WAF refusal page from Resy itself
+ * (chrischall/mcp-host#1015): the `status`, and a redacted, truncated
+ * `bodyPreview` — an edge's block page names its vendor near the top, and
+ * without the body a 403 from the edge is indistinguishable from one from Resy.
+ */
+export class ResyApiError extends Error {
+  readonly status: number;
+  readonly bodyPreview: string;
+
+  constructor(status: number, statusText: string, method: string, path: string, body: string) {
+    super(`Resy API error: ${status} ${statusText} for ${method} ${path}`);
+    this.name = 'ResyApiError';
+    this.status = status;
+    this.bodyPreview = truncateErrorMessage(body);
   }
 }
 
