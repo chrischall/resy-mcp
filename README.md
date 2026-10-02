@@ -83,7 +83,7 @@ For MCPB / Claude Desktop install, the packaged manifest prompts for all three o
 |---|---|---|
 | `MCP_CONFIRM_MODE` | `ask-user` | What a write does on a client that cannot show a confirmation prompt (claude.ai, Claude Desktop). `ask-user`: two steps — the first call does nothing and returns a preview plus a token, and the model must get your approval in chat before calling again with it. `auto`: the same two steps, but the model may use the token after reviewing the preview itself. `refuse`: writes are refused on such clients. A client that can show prompts (Claude Code) always gets the real prompt. An unrecognised value is treated as `refuse`. |
 | `MCP_CONFIRM_TTL_SECONDS` | `600` | How long a token stays valid. |
-| `MCP_CONFIRM_SECRET` | random per process | Signing key; set it only if tokens must survive a server restart. |
+| `MCP_CONFIRM_SECRET` | random per process | Signing key; set it only if tokens must survive a server restart. On mcp-host the host supplies a stable per-child key (`MCP_HOST_CONFIRM_SECRET`) and spent tokens are recorded under `MCP_DATA_DIR`, so an approval survives an idle restart. |
 
 `resy_book` additionally books only the exact slot a preview showed (`desired_time` + `slot_type` + `terms_token`); a call that does not name it returns a preview instead.
 
