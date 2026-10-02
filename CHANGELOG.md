@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.3.0](https://github.com/chrischall/resy-mcp/compare/v1.2.2...v1.3.0) (2026-10-02)
+
+
+### Features
+
+* **book:** confirm a Resy booking with just the preview's time and confirmToken ([#262](https://github.com/chrischall/resy-mcp/issues/262)) ([96f5eaf](https://github.com/chrischall/resy-mcp/commit/96f5eaf5df56737b0b766c42ccc578d003248b81))
+
+
+### Bug Fixes
+
+* **client:** report a CDN/WAF block as edge_blocked without spending a re-login ([#260](https://github.com/chrischall/resy-mcp/issues/260)) ([b7e48b6](https://github.com/chrischall/resy-mcp/commit/b7e48b686446d227ad0f8b843324f5b000eb577c))
+* **deps:** adopt @chrischall/mcp-utils 2.12.0 parseRetryAfterMs for Resy's 429 backoff ([#257](https://github.com/chrischall/resy-mcp/issues/257)) ([3af16c9](https://github.com/chrischall/resy-mcp/commit/3af16c9113c1de639b66cf030b7e6c1aaad1e45d))
+* keep credentials and report edge_blocked on CDN/WAF blocks (mcp-utils 2.10.0) ([#255](https://github.com/chrischall/resy-mcp/issues/255)) ([1e4ea97](https://github.com/chrischall/resy-mcp/commit/1e4ea9771ad7099e06bae41f4d53ad692ca67bba))
+* keep write approvals valid across a hosted restart (mcp-utils 2.11.0) ([#256](https://github.com/chrischall/resy-mcp/issues/256)) ([637ee61](https://github.com/chrischall/resy-mcp/commit/637ee61a2c7183b0ba7567719e1c4c4d2d5e83de))
+* report CDN/WAF blocks as edge_blocked, not a rejected credential (mcp-utils 2.9.0) ([#253](https://github.com/chrischall/resy-mcp/issues/253)) ([173ba2b](https://github.com/chrischall/resy-mcp/commit/173ba2b232c621022cd41c3c837f15a52484b6cd))
+
+
+### Documentation
+
+* describe the Retry-After-aware 429 backoff in the CLAUDE.md gotchas ([#259](https://github.com/chrischall/resy-mcp/issues/259)) ([47d926e](https://github.com/chrischall/resy-mcp/commit/47d926e409a5ffe7681c46fe5e6f0c5b975d28db))
+* stop telling agents to arm the release PR ([#261](https://github.com/chrischall/resy-mcp/issues/261)) ([de17749](https://github.com/chrischall/resy-mcp/commit/de17749c846ccb046f22d6f843336ad1e96339ff))
+
 ## [1.2.2](https://github.com/chrischall/resy-mcp/compare/v1.2.1...v1.2.2) (2026-09-27)
 
 
