@@ -3,6 +3,8 @@ import { createTokenCache, reportCacheWriteFailure } from './token-cache.js';
 import { resolveApiKey } from './api-key.js';
 import { fileURLToPath } from 'url';
 import {
+  detectEdgeBlock,
+  EdgeBlockedError,
   readEnvVar,
   loadDotenvSafely,
   parseBoolEnv,
@@ -137,10 +139,11 @@ export class ResyClient {
   ): Promise<{ res: Response; text: string }> {
     const timeout = AbortSignal.timeout(this.requestTimeoutMs);
     const signal = withAmbientCancellation(timeout) ?? timeout;
+    let res: Response;
+    let text: string;
     try {
-      const res = await fetch(url, { ...init, signal });
-      const text = await res.text();
-      return { res, text };
+      res = await fetch(url, { ...init, signal });
+      text = await res.text();
     } catch (err) {
       if (!signal.aborted) throw err;
       const what = timeout.aborted
@@ -153,6 +156,18 @@ export class ResyClient {
             '(e.g. resy_list_reservations after a booking or cancel) before retrying.';
       throw new Error(what + unknown, { cause: err });
     }
+    // A CDN/WAF refusal page never reached Resy, so no credential was judged
+    // (chrischall/mcp-host#1015). Decide that HERE, while the body is still in
+    // hand: the Response handed on to TokenManager.withAuth has already been
+    // read, so its own block check sees nothing, and a 401 block page used to
+    // spend a re-mint (a real password login or a bridge round trip) and then
+    // read as a rejected credential. Throwing propagates through withAuth
+    // untouched — no refresh, no replay.
+    if (!res.ok) {
+      const edge = detectEdgeBlock({ body: text, headers: res.headers, status: res.status });
+      if (edge) throw new EdgeBlockedError(res.status, edge.vendor, { service: 'Resy', method, path });
+    }
+    return { res, text };
   }
 
   async request<T>(method: string, path: string, body?: ResyBody): Promise<T> {
