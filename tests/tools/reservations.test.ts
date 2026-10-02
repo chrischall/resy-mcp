@@ -723,6 +723,28 @@ describe('reservation tools (list/cancel)', () => {
       expect(bookingTermsToken('Patio', null, null)).not.toBe(bookingTermsToken('Patio', null, { deposit: 10 }));
     });
 
+    // GOLDEN VECTORS (fleet-audit #1103). The terms_token is part of the
+    // confirm-token payload and is echoed back by the caller, so its exact
+    // bytes are a wire contract: any change — including swapping the local
+    // FNV-1a for mcp-utils' hashConfirmPayload (SHA-256/base64url, which
+    // yields e.g. 5ShKBmT-SvxWHB_lfdZRJTFCIRBmUdfKawQLkDSZnWI for the first
+    // vector) — invalidates every approval in flight across a deploy and
+    // every preview a caller is holding. These values were captured from the
+    // shipped implementation; they must never change silently.
+    it('bookingTermsToken is byte-for-byte stable (golden vectors)', () => {
+      expect(bookingTermsToken('Dining Room', null, null)).toBe('c0ed2332cee99179');
+      expect(
+        bookingTermsToken('Patio', { fee: { amount: 25, applies: true, date_cut_off: '2026-10-01T00:00:00Z' } }, null),
+      ).toBe('67bade21c4f8b14d');
+      expect(
+        bookingTermsToken('Bar', { refund: { date_cut_off: null } }, { deposit: { amount: 50.5 }, type: 'deposit' }),
+      ).toBe('b3a45b995a1c9356');
+      // Non-ASCII (UTF-8 bytes are hashed), nested key order, and an undefined payment.
+      expect(
+        bookingTermsToken('Chef’s Counter — \u{1F363}', { b: [3, { z: 1, a: 'é' }], a: true }, undefined),
+      ).toBe('e8849ac90736a5e1');
+    });
+
     it('uses explicit payment_method_id when provided and skips /2/user', async () => {
       routeBook({
         slots: [{ token: 'cfg', time: '19:00', type: 'DR' }],

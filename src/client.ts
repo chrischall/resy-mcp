@@ -6,6 +6,7 @@ import {
   readEnvVar,
   loadDotenvSafely,
   parseBoolEnv,
+  parseRetryAfterMs,
   truncateErrorMessage,
   withAmbientCancellation,
 } from '@chrischall/mcp-utils';
@@ -66,6 +67,14 @@ const SPOOF_HEADERS = {
  * a slow-but-healthy Resy response, below the ~60s client timeouts.
  */
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * 429 backoff: honor Resy's `Retry-After` (delta-seconds), falling back to the
+ * historical fixed 2s when it is absent or unparseable, and capped so a CDN
+ * asking for an hour can't pin a tool call open.
+ */
+const RATE_LIMIT_DEFAULT_DELAY_MS = 2_000;
+const RATE_LIMIT_MAX_DELAY_MS = 30_000;
 
 export interface ResyClientOptions {
   /** Override the per-request deadline. Tests use a short one. */
@@ -173,13 +182,13 @@ export class ResyClient {
     // burst of 401s from double-refreshing. Resy also flags 419 and auth-shaped
     // 500s as auth failures, which withAuth can't see (it only keys on 401), so
     // we normalize them to a synthetic 401 to drive the same one-shot replay.
-    let captured: { text: string; status: number; statusText: string; ok: boolean } | null = null;
+    let captured: { text: string; status: number; statusText: string; ok: boolean; headers: Headers } | null = null;
     await this.tokens.withAuth(async (token) => {
       const { res, text } = await this.timedFetch(method, path, `${BASE_URL}${path}`, {
         ...init,
         headers: buildHeaders(token),
       });
-      captured = { text, status: res.status, statusText: res.statusText, ok: res.ok };
+      captured = { text, status: res.status, statusText: res.statusText, ok: res.ok, headers: res.headers };
       // Narrow: match only auth-scoped phrases, not any mention of "token"
       // (Resy occasionally says things like "book_token expired" which is a
       // different failure and shouldn't trigger a re-login).
@@ -191,14 +200,18 @@ export class ResyClient {
       return res;
     });
 
-    const { text, status, statusText, ok } = captured!;
+    const { text, status, statusText, ok, headers } = captured!;
 
     if (looksLikeAuthFailure(status, text)) {
       throw new ResyAuthError();
     }
 
     if (status === 429) {
-      await new Promise<void>((r) => setTimeout(r, 2000));
+      const delayMs = parseRetryAfterMs(headers.get('retry-after'), {
+        defaultMs: RATE_LIMIT_DEFAULT_DELAY_MS,
+        capMs: RATE_LIMIT_MAX_DELAY_MS,
+      });
+      await new Promise<void>((r) => setTimeout(r, delayMs));
       return this.requestRetry<T>(method, path, init, buildHeaders);
     }
 
