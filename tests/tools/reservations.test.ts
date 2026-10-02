@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import type { ResyClient } from '../../src/client.js';
-import { bookingTermsToken, registerReservationTools } from '../../src/tools/reservations.js';
+import { confirmationFromEnv, requireConfirmationWithFallback } from '@chrischall/mcp-utils';
+import { bookingTermsToken, confirmsByToken, registerReservationTools } from '../../src/tools/reservations.js';
 import { createTestHarness } from '../helpers.js';
 
 const mockRequest = vi.fn();
@@ -389,6 +390,34 @@ describe('reservation tools (list/cancel)', () => {
       try {
         const result = await h.callTool('resy_cancel', { resy_token: 'rr://abc' });
         expect(result.isError).toBeFalsy();
+        expect(posts('/3/cancel')).toHaveLength(1);
+      } finally {
+        await h.close();
+      }
+    });
+
+    // fleet-audit#1104: an acceptance is bound to what it approved. A fee that
+    // appears while the prompt is open must be asked about again, not
+    // cancelled on the strength of the earlier answer.
+    it('a client that can be prompted is asked again when the reservation changes under the prompt', async () => {
+      let fee: { amount: number; applies: boolean } | undefined;
+      routeCancel(() => ({
+        ...LISTING,
+        reservations: [{ ...LISTING.reservations[0], cancellation: { allowed: true, fee } }],
+      }));
+      const shown: string[] = [];
+      const h = await createTestHarness((server) => registerReservationTools(server, mockClient), {
+        elicitation: async (req) => {
+          shown.push(JSON.stringify(req.params));
+          fee = { amount: 50, applies: true };
+          return { action: 'accept', content: { confirmed: true } };
+        },
+      });
+      try {
+        await h.callTool('resy_cancel', { resy_token: 'rr://abc' });
+        expect(shown).toHaveLength(2);
+        expect(shown[0]).not.toContain('50');
+        expect(shown[1]).toContain('50');
         expect(posts('/3/cancel')).toHaveLength(1);
       } finally {
         await h.close();
@@ -1201,6 +1230,39 @@ describe('reservation tools (list/cancel)', () => {
       }
     });
 
+    it('a client that can be prompted is asked again when the card changes under the prompt', async () => {
+      // The pin (desired_time + slot_type + terms_token) re-checks the slot on
+      // the retry, but the default card is resolved fresh too: the acceptance
+      // must be bound to the card it showed.
+      let card = { id: 55, is_default: true, last_four: '4242' };
+      mockRequest.mockImplementation(async (method: string, path: string) => {
+        if (path.startsWith('/4/find?')) return findResponse([{ token: 'cfg-7pm', time: '19:00' }]);
+        if (path.startsWith('/3/details?')) return detailsResponse('Dining Room');
+        if (path === '/2/user') return { payment_methods: [card] };
+        if (path === '/3/user/reservations') return { reservations: [], venues: {} };
+        if (method === 'POST' && path === '/3/book') return { resy_token: 'rr://new', reservation_id: 1, time_slot: '19:00' };
+        throw new Error(`unexpected ${method} ${path}`);
+      });
+      const shown: string[] = [];
+      const h = await createTestHarness((server) => registerReservationTools(server, mockClient), {
+        elicitation: async (req) => {
+          shown.push(JSON.stringify(req.params));
+          card = { id: 66, is_default: true, last_four: '9999' };
+          return { action: 'accept', content: { confirmed: true } };
+        },
+      });
+      try {
+        await h.callTool('resy_book', BOOK_19);
+        expect(shown).toHaveLength(2);
+        expect(shown[0]).toContain('4242');
+        expect(shown[1]).toContain('9999');
+        expect(posts('/3/book')).toHaveLength(1);
+        expect(JSON.parse((posts('/3/book')[0][2] as URLSearchParams).get('struct_payment_method')!)).toEqual({ id: 66 });
+      } finally {
+        await h.close();
+      }
+    });
+
     it('a client that can be prompted books nothing on decline', async () => {
       routeBook({ slots: [{ token: 'cfg-7pm', time: '19:00' }] });
       const h = await promptingHarness('decline');
@@ -1220,4 +1282,47 @@ describe('reservation tools (list/cancel)', () => {
       expect(posts('/3/book')).toHaveLength(0);
     });
   });
+});
+
+// #263: resy_book predicts the confirmation rail before calling the gate. The
+// prediction must agree with what mcp-utils' gate actually does, for every
+// capability shape and confirm mode — or a library change has moved under it.
+describe('confirmsByToken agrees with requireConfirmationWithFallback', () => {
+  const CAPS_KEY = 'io.modelcontextprotocol/clientCapabilities';
+  const shapes: Array<[string, Record<string, unknown> | undefined]> = [
+    ['no declared capabilities', undefined],
+    ['no elicitation', {}],
+    ['elicitation, no modes named', { elicitation: {} }],
+    ['form elicitation', { elicitation: { form: {} } }],
+    ['url-only elicitation', { elicitation: { url: {} } }],
+    ['form + url elicitation', { elicitation: { form: {}, url: {} } }],
+  ];
+  const modes = ['ask-user', 'auto', 'refuse'];
+
+  for (const mode of modes) {
+    for (const [label, caps] of shapes) {
+      it(`${mode} / ${label}`, async () => {
+        const env = { MCP_CONFIRM_MODE: mode };
+        const ctx = {
+          mcpReq: {
+            id: 1,
+            method: 'tools/call',
+            ...(caps === undefined ? {} : { envelope: { [CAPS_KEY]: caps } }),
+          },
+        };
+        const opts = confirmationFromEnv({
+          action: 'resy.book',
+          message: 'Review and confirm this booking:',
+          details: { x: 1 },
+          tool: 'resy_book',
+          env,
+          subject: () => ({ target: '1', payload: { x: 1 }, preview: { x: 1 } }),
+        });
+        const result = await requireConfirmationWithFallback(ctx as never, opts);
+        const text = (result as { content?: Array<{ text?: string }> } | undefined)?.content?.[0]?.text;
+        const tookTokenRail = typeof text === 'string' && JSON.parse(text).status === 'confirmation-required';
+        expect(confirmsByToken(ctx, opts)).toBe(tookTokenRail);
+      });
+    }
+  }
 });
