@@ -186,6 +186,13 @@ function stableStringify(value: unknown): string {
  *
  * Change detection, not security: a 64-bit FNV-1a over the stable JSON, so it
  * runs anywhere (Node or a Worker) without a crypto import.
+ *
+ * Deliberately NOT mcp-utils' `hashConfirmPayload` (fleet-audit #1103): that is
+ * SHA-256/base64url over a type-tagged canonical form, so every token it made
+ * would differ from the ones this has always produced. The token is a wire
+ * contract — it is echoed by the caller and folded into the confirm-token
+ * payload — so swapping the hash would refuse every preview and approval in
+ * flight across the deploy. Golden vectors in reservations.test.ts pin it.
  */
 export function bookingTermsToken(
   slotType: string,

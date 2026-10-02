@@ -44,7 +44,7 @@ src/
                         #   tool groups, connects stdio transport
   client.ts             # ResyClient: lazy auth (env-token | password | fetchproxy),
                         #   token caching, 401/419/auth-500 → refresh+retry,
-                        #   429 backoff+retry, URLSearchParams vs JSON body
+                        #   429 Retry-After backoff (2s default, 30s cap)+retry, URLSearchParams vs JSON body
   api-key.ts            # resolveApiKey()/apiKeyAuthorization(): the PUBLIC
                         #   web-app key every api.resy.com call carries. Its own
                         #   leaf module because client.ts imports

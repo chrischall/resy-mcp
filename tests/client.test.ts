@@ -415,6 +415,67 @@ describe('ResyClient', () => {
     expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
+  /** Token mint, then a 429 carrying `retryAfter`, then a 200. */
+  function throttledOnce(retryAfter: string | null) {
+    return vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't' }),
+      })
+      .mockResolvedValueOnce({
+        ok: false, status: 429, statusText: 'Too Many Requests',
+        headers: new Headers(retryAfter === null ? {} : { 'retry-after': retryAfter }),
+        text: async () => 'slow down',
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ ok: true }),
+      });
+  }
+
+  // fleet-audit #1102: the 429 retry used to sleep a fixed 2s whatever Resy asked.
+  it('honours a 429 Retry-After (waits 5s, not the 2s default)', async () => {
+    const mockFetch = throttledOnce('5');
+    vi.stubGlobal('fetch', mockFetch);
+    vi.useFakeTimers();
+
+    const client = new ResyClient();
+    const promise = client.request('GET', '/x');
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(promise).resolves.toEqual({ ok: true });
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('caps a huge 429 Retry-After at 30s so one throttle cannot pin a tool call', async () => {
+    const mockFetch = throttledOnce('3600');
+    vi.stubGlobal('fetch', mockFetch);
+    vi.useFakeTimers();
+
+    const client = new ResyClient();
+    const promise = client.request('GET', '/x');
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(promise).resolves.toEqual({ ok: true });
+  });
+
+  it('falls back to 2s for an unparseable (HTTP-date) Retry-After', async () => {
+    const mockFetch = throttledOnce('Wed, 21 Oct 2026 07:28:00 GMT');
+    vi.stubGlobal('fetch', mockFetch);
+    vi.useFakeTimers();
+
+    const client = new ResyClient();
+    const promise = client.request('GET', '/x');
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(promise).resolves.toEqual({ ok: true });
+  });
+
   it('throws rate-limit error if 429 persists', async () => {
     const mockFetch = vi.fn()
       .mockResolvedValueOnce({
