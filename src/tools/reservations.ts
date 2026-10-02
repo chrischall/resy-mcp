@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  callerAcceptsFormElicitation,
   confirmationFromEnv,
   confirmTokenParam,
   extractTime,
@@ -179,10 +180,11 @@ function stableStringify(value: unknown): string {
 /**
  * A short fingerprint of the terms a booking commits the card to: the seating
  * type plus the raw cancellation and payment blocks from GET /3/details. The
- * preview returns it; a booking call must feed it back, and books only when the
- * freshly fetched slot still has the same fingerprint — so a fee added (or a
- * different seating substituted) between preview and booking re-previews
- * instead of booking (fleet-audit#225/#226).
+ * preview returns it and the confirm-token payload binds it; on the elicitation
+ * rail a booking call must also feed it back. Either way a booking goes ahead
+ * only when the freshly fetched slot still has the same fingerprint — so a fee
+ * added (or a different seating substituted) between preview and booking
+ * re-previews instead of booking (fleet-audit#225/#226).
  *
  * Change detection, not security: a 64-bit FNV-1a over the stable JSON, so it
  * runs anywhere (Node or a Worker) without a crypto import.
@@ -190,8 +192,8 @@ function stableStringify(value: unknown): string {
  * Deliberately NOT mcp-utils' `hashConfirmPayload` (fleet-audit #1103): that is
  * SHA-256/base64url over a type-tagged canonical form, so every token it made
  * would differ from the ones this has always produced. The token is a wire
- * contract — it is echoed by the caller and folded into the confirm-token
- * payload — so swapping the hash would refuse every preview and approval in
+ * contract — it is echoed by the caller on the elicitation rail and folded into
+ * the confirm-token payload — so swapping the hash would refuse every preview and approval in
  * flight across the deploy. Golden vectors in reservations.test.ts pin it.
  */
 export function bookingTermsToken(
@@ -492,17 +494,20 @@ export function registerReservationTools(
     {
       description:
         "Book a reservation. Composite tool: internally runs find-slots → get booking details → book. " +
-        'It books ONLY the exact slot a preview showed. A call without desired_time, slot_type and terms_token ' +
-        'returns a preview (venue, date, party size, the exact slot time that would be booked, the payment card ' +
-        "last-4, and the slot's cancellation_policy / payment_terms — any no-show fee or deposit) and books nothing. " +
+        'It books ONLY the exact slot a preview showed. The first call returns a preview (venue, date, party size, ' +
+        "the exact slot time that would be booked, its slot_type, the payment card last-4, and the slot's " +
+        'cancellation_policy / payment_terms — any no-show fee or deposit) and books nothing. ' +
         'Pass desired_time (HH:MM, 24-hour) to target a specific slot. If your exact desired_time is not ' +
         'available the tool does NOT auto-book a different time — it returns the available times so you can pick, ' +
         'unless you pass allow_closest_time:true (which previews the nearest slot). Omit desired_time to preview ' +
         'the first available slot. Resy can list several slots at one time with different seating types ' +
         '(Dining Room / Bar / Patio) and different fees; pass slot_type to target one. ' +
-        "To book, call again with the preview's time as desired_time, its slot_type and its terms_token " +
-        '(without allow_closest_time). If that slot is gone, or its seating type or cancellation/payment terms ' +
-        'changed since the preview, nothing is booked and a fresh preview is returned. ' +
+        'To book: on a client without a confirmation prompt the preview comes back with a confirmToken bound to ' +
+        'that exact slot and its terms — after the user approves, call again with the same arguments plus the ' +
+        "preview's time as desired_time and the confirmToken. On a client that can prompt, call again with the " +
+        "preview's time as desired_time, its slot_type and its terms_token, and the user is asked to confirm. " +
+        'If that slot is gone, or its seating type or cancellation/payment terms changed since the preview, ' +
+        'nothing is booked and a fresh preview is returned. ' +
         CONFIRM_FLOW +
         ' Before booking, it checks your existing reservations and refuses if you already hold one at ' +
         'this venue on this date (e.g. an earlier call that timed out but went through); pass ' +
@@ -535,16 +540,18 @@ export function registerReservationTools(
           .optional()
           .describe(
             "Seating type (e.g. 'Dining Room', 'Bar', 'Patio'), matched case-insensitively. Only slots of this " +
-              "type are considered. Required to book — pass the preview's slot_type."
+              "type are considered. On a client that can prompt it is required to book — pass the preview's " +
+              'slot_type. With a confirmToken it is optional: the token already binds the seating type.'
           ),
         terms_token: z
           .string()
           .min(1)
           .optional()
           .describe(
-            "The preview's terms_token, required to book. It fingerprints the slot's seating type and " +
-              'cancellation/payment terms; if they changed since the preview, the call re-previews instead ' +
-              'of booking.'
+            "The preview's terms_token. It fingerprints the slot's seating type and cancellation/payment " +
+              'terms; if they changed since the preview, the call re-previews instead of booking. Required to ' +
+              'book on a client that can prompt; with a confirmToken it is optional, because the token already ' +
+              'binds the terms (a change is refused as DRAFT_CHANGED).'
           ),
         lat: z.number().optional(),
         lng: z.number().optional(),
@@ -641,15 +648,22 @@ export function registerReservationTools(
       //    cancellation/payment terms are the ones the user saw. Anything else
       //    — with or without a confirmToken — gets a fresh preview
       //    (fleet-audit#225, #226).
+      //
+      //    HOW the slot is pinned depends on the confirmation rail
+      //    (fleet-audit#1103):
+      //    - Elicitation (the client can prompt): the caller pins it with
+      //      desired_time + slot_type + terms_token, because nothing else ties
+      //      the prompted call to a preview the model has actually read.
+      //    - Token (the client cannot be prompted): the confirmToken is bound to
+      //      the exact slot — time, slot_type and terms_token are all in its
+      //      payload — so any drift is refused as DRAFT_CHANGED. The preview IS
+      //      phase 1 (it carries the token) and confirming needs only the
+      //      preview's time as desired_time plus the confirmToken: two values,
+      //      not four. A stale slot_type/terms_token passed anyway is not
+      //      ignored — it lands in the gate and comes back DRAFT_CHANGED.
       const termsToken = bookingTermsToken(details.slot_type, details.cancellation, details.payment);
       const termsChanged = terms_token !== undefined && terms_token !== termsToken;
-      const slotPinned =
-        desired_time !== undefined &&
-        !selection.isClosest &&
-        slot_type !== undefined &&
-        sameSlotType(details.slot_type, slot_type) &&
-        terms_token !== undefined &&
-        !termsChanged;
+      const exactTime = desired_time !== undefined && !selection.isClosest;
       const slotPreview = {
         preview: true,
         action: 'book',
@@ -671,7 +685,84 @@ export function registerReservationTools(
         cancellation_policy: details.cancellation,
         payment_terms: details.payment,
       };
+      const payload = {
+        venue_id,
+        date,
+        party_size,
+        time: chosen.time,
+        slot_type: details.slot_type,
+        terms_token: termsToken,
+        payment_method_id: payment.id,
+        allow_duplicate: allow_duplicate === true,
+      };
+      const confirmStep = `call again with desired_time: "${chosen.time}" and the confirmToken (keep the other arguments)`;
+      const gateOptions = confirmationFromEnv({
+        action: 'resy.book',
+        message: 'Review and confirm this booking:',
+        details: {
+          venue_name: details.venue_name,
+          date,
+          time: chosen.time,
+          party_size,
+          slot_type: details.slot_type,
+          payment_method: slotPreview.payment_method,
+          cancellation_policy: details.cancellation,
+          payment_terms: details.payment,
+        },
+        tool: 'resy_book',
+        confirmToken,
+        instruction:
+          'Show this preview to the user verbatim and proceed only after they explicitly approve in chat. ' +
+          `Then ${confirmStep}.`,
+        subject: () => ({
+          target: String(venue_id),
+          // What the booking commits to. The book_token itself is minted
+          // fresh by every /3/details read, so the slot it resolves to is
+          // bound instead. This shape is a wire contract: a token issued
+          // before a deploy must still verify after it.
+          payload,
+          preview: {
+            ...slotPreview,
+            note:
+              (termsChanged
+                ? `This slot's seating type or cancellation/payment terms changed since your earlier preview — ` +
+                  `review the terms below. `
+                : '') +
+              `Nothing was booked yet — this is the exact slot that will be booked once confirmed. ` +
+              `To book it after the user approves, ${confirmStep}.` +
+              (selection.isClosest
+                ? ` NOTE: your requested time ${desired_time} was unavailable, so the CLOSEST slot (${chosen.time}) was selected.`
+                : '') +
+              cancellationFeeNote(details.cancellation),
+          },
+        }),
+      });
+      // Exactly requireConfirmationWithFallback's own rail test.
+      const tokenRail = gateOptions.tokenFallback !== undefined && callerAcceptsFormElicitation(ctx) === false;
+      const slotPinned = tokenRail
+        ? confirmToken === undefined || exactTime
+        : exactTime &&
+          slot_type !== undefined &&
+          sameSlotType(details.slot_type, slot_type) &&
+          terms_token !== undefined &&
+          !termsChanged;
       if (!slotPinned) {
+        if (tokenRail) {
+          // A confirmToken arrived without the exact time it approved (none,
+          // or a closest-time substitution). The token is not spent: retry
+          // with desired_time; a slot other than the approved one is then
+          // DRAFT_CHANGED.
+          return minifiedResult({
+            ...slotPreview,
+            note:
+              `NOT BOOKED — a booking goes ahead only for the exact slot a preview showed, so the slot booked is ` +
+              `always the one you approved. To book this slot, ${confirmStep}.` +
+              (selection.isClosest
+                ? ` NOTE: your requested time ${desired_time} was unavailable, so the CLOSEST slot (${chosen.time}) was selected.`
+                : '') +
+              cancellationFeeNote(details.cancellation),
+          });
+        }
         return minifiedResult({
           ...slotPreview,
           note:
@@ -692,47 +783,7 @@ export function registerReservationTools(
         });
       }
 
-      const gate = await requireConfirmationWithFallback(
-        ctx,
-        confirmationFromEnv({
-          action: 'resy.book',
-          message: 'Review and confirm this booking:',
-          details: {
-            venue_name: details.venue_name,
-            date,
-            time: chosen.time,
-            party_size,
-            slot_type: details.slot_type,
-            payment_method: slotPreview.payment_method,
-            cancellation_policy: details.cancellation,
-            payment_terms: details.payment,
-          },
-          tool: 'resy_book',
-          confirmToken,
-          subject: () => ({
-            target: String(venue_id),
-            // What the booking commits to. The book_token itself is minted
-            // fresh by every /3/details read, so the slot it resolves to is
-            // bound instead.
-            payload: {
-              venue_id,
-              date,
-              party_size,
-              time: chosen.time,
-              slot_type: details.slot_type,
-              terms_token: termsToken,
-              payment_method_id: payment.id,
-              allow_duplicate: allow_duplicate === true,
-            },
-            preview: {
-              ...slotPreview,
-              note:
-                'Nothing was booked yet — this is the exact slot that will be booked once confirmed.' +
-                cancellationFeeNote(details.cancellation),
-            },
-          }),
-        })
-      );
+      const gate = await requireConfirmationWithFallback(ctx, gateOptions);
       if (gate) return gate;
 
       // 6. duplicate guard (read-only): refuse if the user already holds a
@@ -749,9 +800,11 @@ export function registerReservationTools(
               `NOT BOOKED — you already have ${existing.length === 1 ? 'a reservation' : `${existing.length} reservations`} ` +
               `at ${details.venue_name} on ${date} (see existing_reservations). If an earlier resy_book call ` +
               `failed or timed out, it most likely went through. To book another table anyway, call again with ` +
-              `allow_duplicate: true, desired_time: "${chosen.time}", ` +
-              `slot_type: "${details.slot_type}" and terms_token: "${termsToken}" (without a confirmToken — ` +
-              `booking a second table is confirmed afresh).`,
+              `allow_duplicate: true, desired_time: "${chosen.time}"` +
+              (tokenRail
+                ? ''
+                : `, slot_type: "${details.slot_type}" and terms_token: "${termsToken}"`) +
+              ` (without a confirmToken — booking a second table is confirmed afresh).`,
             venue_name: details.venue_name,
             date,
             time: chosen.time,

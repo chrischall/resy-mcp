@@ -614,18 +614,152 @@ describe('reservation tools (list/cancel)', () => {
         ],
         details: detailsResponse('Dining Room'),
       });
-      const parsed = parse(await harness.callTool('resy_book', {
+      const first = parse(await harness.callTool('resy_book', {
         venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '17:00',
       }));
-      expect(parsed.status).toBeUndefined(); // not yet pinned: no token is issued
+      // On the token rail the preview IS phase 1: the confirmToken it carries
+      // is bound to this exact slot and its terms.
+      expect(first.status).toBe('confirmation-required');
+      expect(typeof first.confirmToken).toBe('string');
+      const parsed = first.preview;
       expect(parsed.slot_type).toBe('Dining Room');
       expect(parsed.terms_token).toBe(bookingTermsToken('Dining Room', null, null));
       expect(parsed.available_slots).toEqual([
         { time: '17:00', slot_type: 'Dining Room' },
         { time: '17:00', slot_type: 'Patio' },
       ]);
-      expect(parsed.note).toMatch(/slot_type: "Dining Room"/);
-      expect(parsed.note).toContain(`terms_token: "${parsed.terms_token}"`);
+      expect(parsed.note).toContain('desired_time: "17:00"');
+      expect(parsed.note).toMatch(/confirmToken/);
+      // Two values to echo, not four.
+      expect(parsed.note).not.toMatch(/terms_token: "/);
+      expect(posts('/3/book')).toHaveLength(0);
+    });
+
+    it('on a client that can be prompted, an unpinned call is a plain preview and nobody is prompted', async () => {
+      routeBook({
+        slots: [
+          { token: 'cfg-dr', time: '17:00', type: 'Dining Room' },
+          { token: 'cfg-patio', time: '17:00', type: 'Patio' },
+        ],
+        details: detailsResponse('Dining Room'),
+      });
+      let prompts = 0;
+      const h = await createTestHarness((server) => registerReservationTools(server, mockClient), {
+        elicitation: async () => { prompts += 1; return { action: 'accept', content: { confirmed: true } }; },
+      });
+      try {
+        const parsed = parse(await h.callTool('resy_book', {
+          venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '17:00',
+        }));
+        expect(prompts).toBe(0);
+        expect(parsed.status).toBeUndefined();
+        expect(parsed.slot_type).toBe('Dining Room');
+        expect(parsed.terms_token).toBe(bookingTermsToken('Dining Room', null, null));
+        // The elicitation rail still pins the slot with all three values.
+        expect(parsed.note).toMatch(/slot_type: "Dining Room"/);
+        expect(parsed.note).toContain(`terms_token: "${parsed.terms_token}"`);
+        expect(posts('/3/book')).toHaveLength(0);
+      } finally {
+        await h.close();
+      }
+    });
+
+    // fleet-audit#1103: on the token rail the confirmToken already binds the
+    // slot time, seating type and terms_token, so confirming needs only the
+    // preview's time and the token — drift is refused as DRAFT_CHANGED.
+    it('token rail: preview, then desired_time + confirmToken books exactly the previewed slot', async () => {
+      routeBook({ slots: [{ token: 'cfg-1745', time: '17:45' }, { token: 'cfg-1900', time: '19:00' }] });
+      const base = { venue_id: 101, date: '2026-05-01', party_size: 2 };
+
+      const first = parse(await harness.callTool('resy_book', base));
+      expect(first.status).toBe('confirmation-required');
+      expect(first.preview.time).toBe('17:45');
+      expect(first.instruction).toContain('desired_time: "17:45"');
+      expect(posts('/3/book')).toHaveLength(0);
+
+      const result = parse(await harness.callTool('resy_book', {
+        ...base, desired_time: first.preview.time, confirmToken: first.confirmToken,
+      }));
+      expect(result.resy_token).toBe('rr://new');
+      expect(posts('/3/book')).toHaveLength(1);
+      expect(mockRequest.mock.calls.filter((c) => String(c[1]).includes('config_id=cfg-1900'))).toHaveLength(0);
+    });
+
+    it('token rail: a slot_type filter on the preview carries through to the two-value confirm', async () => {
+      routeBook({
+        slots: [
+          { token: 'cfg-dr', time: '17:00', type: 'Dining Room' },
+          { token: 'cfg-patio', time: '17:00', type: 'Patio' },
+        ],
+        details: (path) => path.includes('config_id=cfg-patio')
+          ? detailsResponse('Patio', { cancellation: patioFee })
+          : detailsResponse('Dining Room'),
+      });
+      const base = { venue_id: 101, date: '2026-05-01', party_size: 2, slot_type: 'Patio' };
+      const first = parse(await harness.callTool('resy_book', base));
+      expect(first.preview.slot_type).toBe('Patio');
+
+      await harness.callTool('resy_book', { ...base, desired_time: '17:00', confirmToken: first.confirmToken });
+      expect(posts('/3/book')).toHaveLength(1);
+      expect((posts('/3/book')[0][2] as URLSearchParams).get('book_token')).toBe('BK-Patio');
+    });
+
+    it('token rail: the approved seating gone, a same-time one of another type is DRAFT_CHANGED, not booked', async () => {
+      let slots = [
+        { token: 'cfg-dr', time: '17:00', type: 'Dining Room' },
+        { token: 'cfg-patio', time: '17:00', type: 'Patio' },
+      ];
+      mockRequest.mockImplementation(async (method: string, path: string) => {
+        if (path.startsWith('/4/find?')) return findResponse(slots);
+        if (path.startsWith('/3/details?')) {
+          return path.includes('config_id=cfg-patio')
+            ? detailsResponse('Patio', { cancellation: patioFee })
+            : detailsResponse('Dining Room');
+        }
+        if (path === '/2/user') return { payment_methods: [{ id: 55, is_default: true }] };
+        if (path === '/3/user/reservations') return { reservations: [], venues: {} };
+        throw new Error(`unexpected ${method} ${path}`);
+      });
+      const base = { venue_id: 101, date: '2026-05-01', party_size: 2 };
+      const first = parse(await harness.callTool('resy_book', { ...base, desired_time: '17:00' }));
+      expect(first.preview.slot_type).toBe('Dining Room');
+
+      slots = [{ token: 'cfg-patio', time: '17:00', type: 'Patio' }];
+      const changed = await harness.callTool('resy_book', { ...base, desired_time: '17:00', confirmToken: first.confirmToken });
+      expect(changed.isError).toBe(true);
+      const parsed = parse(changed);
+      expect(parsed.error).toBe('DRAFT_CHANGED');
+      expect(parsed.preview.slot_type).toBe('Patio');
+      expect(parsed.preview.cancellation_policy).toEqual(patioFee);
+      expect(posts('/3/book')).toHaveLength(0);
+    });
+
+    it('token rail: terms that change after approval are DRAFT_CHANGED, not booked', async () => {
+      let cancellation: unknown = undefined;
+      mockRequest.mockImplementation(async (method: string, path: string) => {
+        if (path.startsWith('/4/find?')) return findResponse([{ token: 'cfg-dr', time: '17:00', type: 'Dining Room' }]);
+        if (path.startsWith('/3/details?')) return detailsResponse('Dining Room', cancellation ? { cancellation } : {});
+        if (path === '/2/user') return { payment_methods: [{ id: 55, is_default: true }] };
+        throw new Error(`unexpected ${method} ${path}`);
+      });
+      const base = { venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '17:00' };
+      const first = parse(await harness.callTool('resy_book', base));
+
+      cancellation = patioFee;
+      const changed = parse(await harness.callTool('resy_book', { ...base, confirmToken: first.confirmToken }));
+      expect(changed.error).toBe('DRAFT_CHANGED');
+      expect(changed.preview.terms_token).toBe(bookingTermsToken('Dining Room', patioFee, null));
+      expect(posts('/3/book')).toHaveLength(0);
+    });
+
+    it('in flight across the deploy: a token from a three-value pinned call books on a two-value confirm', async () => {
+      routeBook({ slots: [{ token: 'cfg-7pm', time: '19:00' }] });
+      const first = parse(await harness.callTool('resy_book', BOOK_19));
+      expect(first.status).toBe('confirmation-required');
+      await harness.callTool('resy_book', {
+        venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00', confirmToken: first.confirmToken,
+      });
+      expect(posts('/3/book')).toHaveLength(1);
     });
 
     it('does NOT book a same-time slot of a different type when the previewed one is gone', async () => {
@@ -656,7 +790,7 @@ describe('reservation tools (list/cancel)', () => {
       expect(parsed.note).toMatch(/Dining Room/);
     });
 
-    it('a confirmToken without slot_type does NOT book — it re-previews the slot with its type and terms', async () => {
+    it('a confirmToken not issued for this slot books nothing, even without slot_type', async () => {
       routeBook({
         slots: [
           { token: 'cfg-patio', time: '17:00', type: 'Patio' },
@@ -664,33 +798,54 @@ describe('reservation tools (list/cancel)', () => {
         ],
         details: detailsResponse('Patio', { cancellation: patioFee }),
       });
-      const parsed = parse(await harness.callTool('resy_book', {
+      const result = await harness.callTool('resy_book', {
         venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '17:00', confirmToken: 'stale',
-      }));
+      });
+      expect(result.isError).toBe(true);
+      expect(parse(result).error).toBe('TOKEN_INVALID');
       expect(posts('/3/book')).toHaveLength(0);
-      expect(parsed.booked).toBe(false);
-      expect(parsed.slot_type).toBe('Patio');
-      expect(parsed.cancellation_policy).toEqual(patioFee);
-      expect(parsed.note).toMatch(/NOT BOOKED/);
-      expect(parsed.note).toMatch(/fee of 25/);
     });
 
-    it('does NOT book when the slot\'s terms changed since the preview — before any token is issued', async () => {
+    it('token rail: a stale terms_token gets an approval for the NEW terms, flagged as changed', async () => {
       // Same slot and type, but a no-show fee was added after the preview.
       routeBook({
         slots: [{ token: 'cfg-dr', time: '17:00', type: 'Dining Room' }],
         details: detailsResponse('Dining Room', { cancellation: patioFee }),
       });
-      const parsed = parse(await harness.callTool('resy_book', {
+      const first = parse(await harness.callTool('resy_book', {
         venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '17:00',
         slot_type: 'Dining Room', terms_token: bookingTermsToken('Dining Room', null, null),
       }));
       expect(posts('/3/book')).toHaveLength(0);
-      expect(parsed.status).toBeUndefined();
-      expect(parsed.booked).toBe(false);
-      expect(parsed.note).toMatch(/terms changed/i);
-      expect(parsed.terms_token).toBe(bookingTermsToken('Dining Room', patioFee, null));
-      expect(parsed.cancellation_policy).toEqual(patioFee);
+      expect(first.status).toBe('confirmation-required');
+      expect(first.preview.booked).toBe(false);
+      expect(first.preview.note).toMatch(/terms changed/i);
+      expect(first.preview.terms_token).toBe(bookingTermsToken('Dining Room', patioFee, null));
+      expect(first.preview.cancellation_policy).toEqual(patioFee);
+    });
+
+    it('elicitation rail: a stale terms_token re-previews and nobody is prompted', async () => {
+      routeBook({
+        slots: [{ token: 'cfg-dr', time: '17:00', type: 'Dining Room' }],
+        details: detailsResponse('Dining Room', { cancellation: patioFee }),
+      });
+      let prompts = 0;
+      const h = await createTestHarness((server) => registerReservationTools(server, mockClient), {
+        elicitation: async () => { prompts += 1; return { action: 'accept', content: { confirmed: true } }; },
+      });
+      try {
+        const parsed = parse(await h.callTool('resy_book', {
+          venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '17:00',
+          slot_type: 'Dining Room', terms_token: bookingTermsToken('Dining Room', null, null),
+        }));
+        expect(prompts).toBe(0);
+        expect(posts('/3/book')).toHaveLength(0);
+        expect(parsed.status).toBeUndefined();
+        expect(parsed.note).toMatch(/terms changed/i);
+        expect(parsed.terms_token).toBe(bookingTermsToken('Dining Room', patioFee, null));
+      } finally {
+        await h.close();
+      }
     });
 
     it('books the previewed slot type among same-time slots when the terms match', async () => {
@@ -830,12 +985,13 @@ describe('reservation tools (list/cancel)', () => {
         paymentMethods: [{ id: 55, is_default: true, last_four: '4242' }],
       });
 
-      const parsed = parse(await harness.callTool('resy_book', {
+      const first = parse(await harness.callTool('resy_book', {
         venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00',
       }));
 
       expect(posts('/3/book')).toHaveLength(0);
-      expect(parsed.status).toBeUndefined();
+      expect(first.status).toBe('confirmation-required');
+      const parsed = first.preview;
       expect(parsed.preview).toBe(true);
       expect(parsed.booked).toBe(false);
       expect(parsed.action).toBe('book');
@@ -857,7 +1013,7 @@ describe('reservation tools (list/cancel)', () => {
 
       const parsed = parse(await harness.callTool('resy_book', {
         venue_id: 101, date: '2026-05-01', party_size: 2,
-      }));
+      })).preview;
 
       // Read-only preview: the mutating POST /3/book must NOT fire.
       expect(posts('/3/book')).toHaveLength(0);
@@ -881,11 +1037,12 @@ describe('reservation tools (list/cancel)', () => {
       const parsed = parse(await harness.callTool('resy_book', {
         venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:15',
         allow_closest_time: true,
-      }));
+      })).preview;
 
       expect(posts('/3/book')).toHaveLength(0);
       expect(parsed.preview).toBe(true);
       expect(parsed.is_closest_match).toBe(true);
+      expect(parsed.note).toContain('desired_time: "19:30"');
       expect(parsed.time).toBe('19:30');
       expect(parsed.requested_time).toBe('19:15');
       expect(parsed.note).toMatch(/CLOSEST slot \(19:30\)/);
@@ -913,7 +1070,7 @@ describe('reservation tools (list/cancel)', () => {
 
       const unpinned = parse(await harness.callTool('resy_book', {
         venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00',
-      }));
+      })).preview;
       expect(unpinned.cancellation_policy).toEqual(cancellation);
       expect(unpinned.payment_terms).toEqual(payment);
       expect(unpinned.note).toMatch(/no-show fee of 50/i);
@@ -935,7 +1092,7 @@ describe('reservation tools (list/cancel)', () => {
       routeBook({ slots: [{ token: 'cfg-7pm', time: '19:00' }] });
       const parsed = parse(await harness.callTool('resy_book', {
         venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00',
-      }));
+      })).preview;
       expect(parsed.cancellation_policy).toBeNull();
       expect(parsed.payment_terms).toBeNull();
       expect(parsed.note).not.toMatch(/cancellation fee/i);
@@ -962,12 +1119,11 @@ describe('reservation tools (list/cancel)', () => {
       expect(parsed.existing_reservations).toHaveLength(1);
       expect(parsed.existing_reservations[0].resy_token).toBe('rr://earlier');
       expect(parsed.note).toMatch(/allow_duplicate: true/);
-      // The re-run must also carry the exact slot, or it only re-previews.
+      // The re-run names the exact slot; on the token rail it is approved afresh.
       expect(parsed.slot_type).toBe('Dining Room');
       expect(parsed.terms_token).toBe(DR_CONFIRM.terms_token);
       expect(parsed.note).toContain('desired_time: "19:00"');
-      expect(parsed.note).toContain('slot_type: "Dining Room"');
-      expect(parsed.note).toContain(`terms_token: "${DR_CONFIRM.terms_token}"`);
+      expect(parsed.note).toMatch(/without a confirmToken/i);
       expect(parsed.note).not.toMatch(/confirm: true/);
     });
 
@@ -1003,7 +1159,7 @@ describe('reservation tools (list/cancel)', () => {
       });
       const parsed = parse(await harness.callTool('resy_book', {
         venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '19:00',
-      }));
+      })).preview;
       expect(parsed.payment_method).toEqual({ id: 77 });
     });
 

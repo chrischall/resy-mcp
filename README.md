@@ -85,7 +85,7 @@ For MCPB / Claude Desktop install, the packaged manifest prompts for all three o
 | `MCP_CONFIRM_TTL_SECONDS` | `600` | How long a token stays valid. |
 | `MCP_CONFIRM_SECRET` | random per process | Signing key; set it only if tokens must survive a server restart. On mcp-host the host supplies a stable per-child key (`MCP_HOST_CONFIRM_SECRET`) and spent tokens are recorded under `MCP_DATA_DIR`, so an approval survives an idle restart. |
 
-`resy_book` additionally books only the exact slot a preview showed (`desired_time` + `slot_type` + `terms_token`); a call that does not name it returns a preview instead.
+`resy_book` additionally books only the exact slot a preview showed. On a client without prompts the preview itself carries the `confirmToken`, bound to that slot's time, seating type and terms; once you approve, the model repeats the call with the preview's time as `desired_time` plus the token. On a client with prompts the call must name the slot (`desired_time` + `slot_type` + `terms_token`) before you are asked. If the slot or its terms changed in between, nothing is booked and a fresh preview is returned.
 
 ## Run (local stdio)
 
