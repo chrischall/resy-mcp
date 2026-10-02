@@ -83,7 +83,7 @@ Or place `.env` in the project directory with `RESY_EMAIL=` and `RESY_PASSWORD=`
 ### Reservations
 | Tool | Description |
 |------|-------------|
-| `resy_book(venue_id, date, party_size, desired_time?, slot_type?, terms_token?, allow_closest_time?, lat?, lng?, payment_method_id?, allow_duplicate?, confirmToken?)` | Composite: find fresh slot → details → book. It books ONLY the exact previewed slot: without `desired_time` + `slot_type` + `terms_token` (a fingerprint of the seating type and cancellation/payment terms) it only returns a preview. `desired_time` is "HH:MM" (24h); an unavailable time returns the available times unless `allow_closest_time: true` previews the nearest. `slot_type` picks a seating (Dining Room / Bar / Patio) when several share a time. Once all three name the previewed slot, the booking asks the user to confirm first: a confirmation prompt where the client supports one; otherwise that call returns the preview plus a `confirmToken`, and only a repeat call with that token books (see `MCP_CONFIRM_MODE`). If the slot, its type or its terms changed, nothing is booked and a fresh preview is returned. The booking refuses if you already hold a reservation at that venue that date (e.g. an earlier timed-out call that went through) unless `allow_duplicate: true`. Uses default payment method unless `payment_method_id` is supplied. |
+| `resy_book(venue_id, date, party_size, desired_time?, slot_type?, terms_token?, allow_closest_time?, lat?, lng?, payment_method_id?, allow_duplicate?, confirmToken?)` | Composite: find fresh slot → details → book. It books ONLY the exact previewed slot. `desired_time` is "HH:MM" (24h); an unavailable time returns the available times unless `allow_closest_time: true` previews the nearest. `slot_type` picks a seating (Dining Room / Bar / Patio) when several share a time. On a client without prompts, the preview comes back as `confirmation-required` with a `confirmToken` bound to that slot's time, seating type and terms; after the user approves, repeat the call with the preview's time as `desired_time` and the `confirmToken` (see `MCP_CONFIRM_MODE`). On a client with prompts, call again with `desired_time` + `slot_type` + `terms_token` (a fingerprint of the seating type and cancellation/payment terms) from the preview and the user is prompted. If the slot, its type or its terms changed, nothing is booked and a fresh preview is returned. The booking refuses if you already hold a reservation at that venue that date (e.g. an earlier timed-out call that went through) unless `allow_duplicate: true`. Uses default payment method unless `payment_method_id` is supplied. |
 | `resy_list_reservations(scope?)` | List reservations. `scope`: `upcoming` (default), `past`, or `all`. Each result includes the `resy_token` needed for cancellation. |
 | `resy_cancel(resy_token, confirmToken?)` | Cancel by `resy_token` (`rr://…`). Asks the user to confirm first (venue, date, time, party size, any fee): a prompt where the client supports one, otherwise a preview plus `confirmToken` that a repeat call passes back. Inspects the response body to set `cancelled: true/false` honestly. |
 
@@ -153,10 +153,15 @@ resy_search_venues(query: "carbone", date: "2026-05-01", party_size: 2)
   → find venue_id
 resy_book(venue_id, date: "2026-05-01", party_size: 2, desired_time: "19:00")
   → preview: time, slot_type, terms_token, fees, payment card; show it to the user
-resy_book(venue_id, date: "2026-05-01", party_size: 2, desired_time: "19:00",
+
+  client WITHOUT prompts (claude.ai, Claude Desktop): that preview is
+  `confirmation-required` and carries a confirmToken. Once the user approves in chat:
+resy_book(venue_id, date: "2026-05-01", party_size: 2,
+          desired_time: "<preview's time>", confirmToken: "<token>")
+
+  client WITH prompts (Claude Code): name the slot and the user is prompted:
+resy_book(venue_id, date: "2026-05-01", party_size: 2, desired_time: "<preview's time>",
           slot_type: "<preview's slot_type>", terms_token: "<preview's terms_token>")
-  → a confirmation prompt; or, on a client without prompts, the preview plus a confirmToken:
-    show it to the user and, once they approve in chat, repeat the call with confirmToken
 ```
 
 **See what's available tonight near me:**
