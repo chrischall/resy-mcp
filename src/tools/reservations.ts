@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import {
   callerAcceptsFormElicitation,
+  CONFIRM_FLOW_SENTENCE,
   confirmationFromEnv,
+  confirmKeyFromEnv,
+  confirmTtlFromEnv,
+  confirmWrite,
   confirmTokenParam,
   extractTime,
   requireConfirmationWithFallback,
@@ -354,9 +358,23 @@ async function findReservationsAtVenueOnDate(
 }
 
 /** How every gated write here asks for approval (see MCP_CONFIRM_MODE in the README). */
-const CONFIRM_FLOW =
-  'Asks the user to confirm first: a confirmation prompt where the client supports one; otherwise the first ' +
-  'call returns a preview and a confirmToken, and only a repeat call with that token proceeds (see MCP_CONFIRM_MODE).';
+const CONFIRM_FLOW = CONFIRM_FLOW_SENTENCE;
+
+/**
+ * Which confirmation rail a gate built from `gateOptions` will take for this
+ * caller: `true` for the two-step confirmToken flow, `false` for an
+ * elicitation prompt (or a refusal under MCP_CONFIRM_MODE=refuse).
+ *
+ * resy_book has to know BEFORE calling the gate, because the rails pin the
+ * slot differently (fleet-audit#1103). This mirrors the test inside
+ * mcp-utils' requireConfirmationWithFallback; reservations.test.ts drives both
+ * through every capability shape and fails if they ever disagree (#263).
+ * Disagreement would not be unsafe either way — every path still books only
+ * through a bound gate — but it would cost the caller a re-preview.
+ */
+export function confirmsByToken(ctx: unknown, gateOptions: { tokenFallback?: unknown }): boolean {
+  return gateOptions.tokenFallback !== undefined && callerAcceptsFormElicitation(ctx) === false;
+}
 
 // ─── tool registrations ───────────────────────────────────────────────
 
@@ -415,7 +433,6 @@ export function registerReservationTools(
       const info = await findReservationByToken(client, resy_token);
       const preview = {
         preview: true,
-        action: 'cancel',
         cancelled: false,
         note: info
           ? `Nothing has been cancelled yet.${
@@ -438,33 +455,33 @@ export function registerReservationTools(
             }
           : {}),
       };
-      const gate = await requireConfirmationWithFallback(
-        ctx,
-        confirmationFromEnv({
-          action: 'resy.cancel',
-          message: 'Review and confirm this cancellation:',
-          details: preview,
-          tool: 'resy_cancel',
-          confirmToken,
-          subject: () => ({
-            target: resy_token,
-            payload: {
-              resy_token,
-              reservation: info
-                ? {
-                    venue_id: info.venue_id,
-                    date: info.date,
-                    time: info.time,
-                    party_size: info.party_size,
-                    cancellable: info.cancellable,
-                    cancellation_fee: info.cancellation_fee,
-                  }
-                : null,
-            },
-            preview,
-          }),
-        })
-      );
+      // The shared confirm kit: binds the POST it will send, the reservation
+      // as just read (so a fee appearing in between is DRAFT_CHANGED) and the
+      // preview shown — on BOTH rails, so an accepted prompt is tied to this
+      // reservation as shown too (fleet-audit#1104).
+      const gate = await confirmWrite(ctx, {
+        tool: 'resy_cancel',
+        action: 'resy.cancel',
+        summary: 'Cancel this Resy reservation',
+        message: 'Review and confirm this cancellation:',
+        account: undefined,
+        target: resy_token,
+        request: { method: 'POST', path: '/3/cancel', body: { resy_token } },
+        payload: {
+          reservation: info
+            ? {
+                venue_id: info.venue_id,
+                date: info.date,
+                time: info.time,
+                party_size: info.party_size,
+                cancellable: info.cancellable,
+                cancellation_fee: info.cancellation_fee,
+              }
+            : null,
+        },
+        preview,
+        confirmToken,
+      });
       if (gate) return gate;
 
       const body = new URLSearchParams({ resy_token });
@@ -711,6 +728,13 @@ export function registerReservationTools(
         },
         tool: 'resy_book',
         confirmToken,
+        // Bind an accepted PROMPT to the same payload the token binds
+        // (fleet-audit#1104): the default card, slot and terms are re-read on
+        // the retry that carries the acceptance, and anything that moved is
+        // asked again rather than booked. Passed as `binding` rather than
+        // `args` so the token-rail payload — a wire contract for approvals in
+        // flight — is unchanged.
+        binding: { key: confirmKeyFromEnv(), args: payload, ttlSeconds: confirmTtlFromEnv() },
         instruction:
           'Show this preview to the user verbatim and proceed only after they explicitly approve in chat. ' +
           `Then ${confirmStep}.`,
@@ -737,8 +761,7 @@ export function registerReservationTools(
           },
         }),
       });
-      // Exactly requireConfirmationWithFallback's own rail test.
-      const tokenRail = gateOptions.tokenFallback !== undefined && callerAcceptsFormElicitation(ctx) === false;
+      const tokenRail = confirmsByToken(ctx, gateOptions);
       const slotPinned = tokenRail
         ? confirmToken === undefined || exactTime
         : exactTime &&
