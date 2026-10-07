@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.2](https://github.com/chrischall/resy-mcp/compare/v1.3.1...v1.3.2) (2026-10-07)
+
+
+### Bug Fixes
+
+* **deps:** retry while the browser bridge awaits approval and allow turning off confirmation prompts ([#270](https://github.com/chrischall/resy-mcp/issues/270)) ([90e80cc](https://github.com/chrischall/resy-mcp/commit/90e80ccf7d43edd4a43f6fb550c8425d1c234ddb))
+
+
+### Documentation
+
+* document MCP_CONFIRM_ELICITATION ([#272](https://github.com/chrischall/resy-mcp/issues/272)) ([85218d0](https://github.com/chrischall/resy-mcp/commit/85218d092b7ff7daae5a111e699c7b28bbbb160e))
+
 ## [1.3.1](https://github.com/chrischall/resy-mcp/compare/v1.3.0...v1.3.1) (2026-10-05)
 
 
