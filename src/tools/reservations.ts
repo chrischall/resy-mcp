@@ -461,7 +461,10 @@ export function registerReservationTools(
       description:
         'Cancel a Resy reservation by its resy_token (the rr://... identifier returned from resy_book or resy_list_reservations). ' +
         'The confirmation preview shows the Resy account, venue, date, time, party size, and any cancellation fee. ' +
-        CONFIRM_FLOW,
+        CONFIRM_FLOW +
+        ' Once confirmed, the result carries `cancelled` (boolean: true only when the cancellation is confirmed) and ' +
+        '`outcome` ("cancelled", "not_cancelled", or "unknown"). On "unknown", `cancelled` is false but the ' +
+        'reservation MAY have been cancelled — check resy_list_reservations before retrying.',
       annotations: {
         ...toolAnnotations({ title: 'Cancel a Resy reservation', readOnly: false }),
         destructiveHint: true,
@@ -554,15 +557,23 @@ export function registerReservationTools(
       const explicitSuccess =
         !explicitFailure && ((status !== undefined && /cancel/.test(status)) || data.ok === true);
       if (explicitFailure || explicitSuccess) {
-        return minifiedResult({ cancelled: explicitSuccess, raw });
+        return minifiedResult({
+          cancelled: explicitSuccess,
+          outcome: explicitSuccess ? 'cancelled' : 'not_cancelled',
+          raw,
+        });
       }
       // Anything else is NOT taken as success (fleet-audit#681): an unflagged
       // soft failure ("past cancellation window") would tell the user the
       // table is released when it is not. Settle it by re-reading the list —
       // cancelled only if the reservation that was listed is now gone.
+      // `cancelled` stays a strict boolean (its contract since 1.0): an
+      // unsettled outcome is `cancelled: false` + `outcome: "unknown"`, so a
+      // caller reading `cancelled` alone never takes it as success.
       const unknown = (why: string) =>
         minifiedResult({
-          cancelled: null,
+          cancelled: false,
+          outcome: 'unknown',
           note:
             `Resy's response did not say whether the cancellation went through, and ${why}. ` +
             'Check resy_list_reservations before retrying.',
@@ -577,6 +588,7 @@ export function registerReservationTools(
       }
       return minifiedResult({
         cancelled: !stillListed,
+        outcome: stillListed ? 'not_cancelled' : 'cancelled',
         ...(stillListed
           ? {
               note:
