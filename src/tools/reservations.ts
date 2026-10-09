@@ -838,6 +838,20 @@ export function registerReservationTools(
           ...(existing.length > 0 ? { existing_reservations: existing } : {}),
         },
         tool: 'resy_book',
+        // Single-account server, as resy_cancel's confirmWrite says: the
+        // /2/user label above is informational and may be missing, so it is
+        // not bound (a flaky read would otherwise flip the binding).
+        account: undefined,
+        // The arguments that stay the same across the two phases ("call again
+        // with the same arguments plus desired_time and the confirmToken").
+        // desired_time / allow_closest_time / slot_type / terms_token differ
+        // between preview and confirm by design; the slot they resolve to is
+        // bound through `payload` instead.
+        args: Object.fromEntries(
+          Object.entries({ venue_id, date, party_size, lat, lng, payment_method_id, allow_duplicate }).filter(
+            ([, v]) => v !== undefined
+          )
+        ),
         confirmToken,
         // Bind an accepted PROMPT to the same payload the token binds
         // (fleet-audit#1104): the default card, slot and terms are re-read on
