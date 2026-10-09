@@ -631,6 +631,17 @@ describe('reservation tools (list/cancel)', () => {
       expect(posts('/3/book')).toHaveLength(1);
     });
 
+    // fleet-audit#680: slot times are always zero-padded ('09:30'), so an
+    // accepted single-digit hour ('9:30') never matched and read as unavailable.
+    it('a single-digit-hour desired_time matches the zero-padded slot exactly', async () => {
+      routeBook({ slots: [{ token: 'cfg-0930', time: '09:30' }, { token: 'cfg-1000', time: '10:00' }] });
+      const { first } = await confirmed('resy_book', { ...BOOK_19, desired_time: '9:30' });
+      expect(first.preview.time).toBe('09:30');
+      expect(first.preview.is_closest_match).toBe(false);
+      expect(mockRequest.mock.calls[1][1]).toContain('config_id=cfg-0930');
+      expect(posts('/3/book')).toHaveLength(1);
+    });
+
     // fleet-audit#225 (follow-up): a booking is tied to the previewed SLOT, not
     // just its time. Resy lists several seatings at one time (Dining Room / Bar
     // / Patio) with different fees; matching on time alone let a confirm book a

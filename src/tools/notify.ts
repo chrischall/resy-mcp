@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { extractTime } from '@chrischall/mcp-utils';
+import { extractTime, normalizeTime } from '@chrischall/mcp-utils';
 import { viewArg, viewResponse } from '../view.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import type { ResyClient } from '../client.js';
@@ -32,9 +32,11 @@ function trimSeconds(t: string | undefined): string | undefined {
 }
 
 // No shared helper for the inverse direction (HH:MM → HH:MM:SS); Resy's /2/notify
-// write endpoint wants seconds, so pad them back on the way out.
+// write endpoint wants seconds, so pad them back on the way out. The schema
+// accepts a single-digit hour ('9:30'), so zero-pad it to HH:MM first — the old
+// length-5 check sent '9:30' through unpadded (fleet-audit#680).
 function padSeconds(t: string): string {
-  return t.length === 5 ? `${t}:00` : t;
+  return `${normalizeTime(t) ?? t}:00`;
 }
 
 export function registerNotifyTools(server: McpServer, client: ResyClient): void {

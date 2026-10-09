@@ -94,6 +94,18 @@ describe('notify tools', () => {
     expect(bb.get('service_type_id')).toBe('2');
   });
 
+  // fleet-audit#680: the schema accepts a single-digit hour ('9:30'); padSeconds
+  // used to pad only 5-char strings, so it went out as '9:30' not '09:30:00'.
+  it('resy_add_notify zero-pads a single-digit hour before sending', async () => {
+    mockRequest.mockResolvedValue({ notify_id: 9 });
+    await harness.callTool('resy_add_notify', {
+      venue_id: 101, date: '2026-05-01', party_size: 2, time_start: '9:30', time_end: '9:45',
+    });
+    const bb = mockRequest.mock.calls[0][2] as URLSearchParams;
+    expect(bb.get('time_preferred_start')).toBe('09:30:00');
+    expect(bb.get('time_preferred_end')).toBe('09:45:00');
+  });
+
   it('resy_add_notify rejects malformed times at schema layer', async () => {
     const result = await harness.callTool('resy_add_notify', {
       venue_id: 101, date: '2026-05-01', party_size: 2, time_start: '7pm',

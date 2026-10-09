@@ -8,6 +8,7 @@ import {
   confirmWrite,
   confirmTokenParam,
   extractTime,
+  normalizeTime,
   requireConfirmationWithFallback,
   toolAnnotations,
 } from '@chrischall/mcp-utils';
@@ -601,6 +602,11 @@ export function registerReservationTools(
       },
       ctx
     ) => {
+      // Slot times are always zero-padded HH:MM, but the schema accepts a
+      // single-digit hour ('9:30'), which then never matched a slot exactly
+      // (fleet-audit#680). Compare — and echo — the padded form.
+      desired_time = desired_time === undefined ? undefined : (normalizeTime(desired_time) ?? desired_time);
+
       // 1. find fresh slots (via shared helper — read-only)
       const slots = await findSlotsAtVenue(client, { venue_id, date, party_size, lat, lng });
       if (slots.length === 0) {
