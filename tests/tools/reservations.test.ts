@@ -804,6 +804,23 @@ describe('reservation tools (list/cancel)', () => {
       expect(mockRequest.mock.calls.filter((c) => String(c[1]).includes('config_id=cfg-1900'))).toHaveLength(0);
     });
 
+    // mcp-utils 3.0: the token also commits to the phase-invariant arguments,
+    // so a token approved for one set of them cannot book with another.
+    it('token rail: a confirmToken is refused when the phase-invariant arguments change', async () => {
+      routeBook({ slots: [{ token: 'cfg-1745', time: '17:45' }] });
+      const base = { venue_id: 101, date: '2026-05-01', party_size: 2, lat: 40.7, lng: -74 };
+
+      const first = parse(await harness.callTool('resy_book', base));
+      expect(first.status).toBe('confirmation-required');
+
+      const result = parse(await harness.callTool('resy_book', {
+        ...base, lat: 41.1, desired_time: first.preview.time, confirmToken: first.confirmToken,
+      }));
+      expect(result.resy_token).toBeUndefined();
+      expect(result.error).toBe('DRAFT_CHANGED');
+      expect(posts('/3/book')).toHaveLength(0);
+    });
+
     it('token rail: a slot_type filter on the preview carries through to the two-value confirm', async () => {
       routeBook({
         slots: [
@@ -1460,6 +1477,8 @@ describe('confirmsByToken agrees with requireConfirmationWithFallback', () => {
           message: 'Review and confirm this booking:',
           details: { x: 1 },
           tool: 'resy_book',
+          account: undefined,
+          args: {},
           env,
           subject: () => ({ target: '1', payload: { x: 1 }, preview: { x: 1 } }),
         });
