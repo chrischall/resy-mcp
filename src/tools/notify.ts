@@ -48,7 +48,7 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
       inputSchema: z.object({
         view: viewArg(),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ view }) => {
       const data = await client.request<NotifyResponse>('GET', '/3/notify');
@@ -73,7 +73,7 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
     {
       description:
         "Subscribe to Priority Notify for a venue/date/party size. Resy emails you when a matching slot opens. time_start / time_end bound the window you're willing to accept (HH:MM, 24h). Resy's notify booking window only accepts near-term dates (~30 days out).",
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
       inputSchema: z.object({
         venue_id: z.number().int().positive(),
         date: z.string().describe('YYYY-MM-DD (must be within Resy\'s notify window, ~30 days)'),
@@ -115,7 +115,7 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
     {
       description:
         'Cancel a Priority Notify subscription by notify_id. The tool looks up the full spec from resy_list_notify internally — no other input needed.',
-      annotations: { readOnlyHint: false, destructiveHint: false },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
       inputSchema: z.object({ notify_id: z.number().int().positive() }),
     },
     async ({ notify_id }) => {

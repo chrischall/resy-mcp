@@ -32,7 +32,7 @@ export function registerUserTools(server: McpServer, client: ResyClient): void {
     inputSchema: z.object({
       view: viewArg(),
     }),
-    annotations: { readOnlyHint: true },
+    annotations: { readOnlyHint: true, openWorldHint: true },
   }, async ({ view }) => {
     // This is the ONE response in this server that carries a media URL, so it
     // is the one place compact strips anything real. Shipping it without the
@@ -55,7 +55,7 @@ export function registerUserTools(server: McpServer, client: ResyClient): void {
     inputSchema: z.object({
       view: viewArg(),
     }),
-    annotations: { readOnlyHint: true },
+    annotations: { readOnlyHint: true, openWorldHint: true },
   }, async ({ view }) => {
     const data = await client.request<ResyUser>('GET', '/2/user');
     const methods = (data.payment_methods ?? []).map((m) => ({

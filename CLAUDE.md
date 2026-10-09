@@ -132,7 +132,7 @@ Write a failing test before implementation. Keep tool tests in `tests/tools/<nam
 
 - All tools are `resy_*`-prefixed.
 - Tool return shape: `textResult(data)` (re-exported by `src/mcp.ts` from `@chrischall/mcp-utils`) → `{ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] }`. Don't hand-roll the wrapper.
-- Read-only tools set `annotations: { readOnlyHint: true }`.
+- Every tool sets `openWorldHint: true` (they all call api.resy.com). Read-only tools set `annotations: { readOnlyHint: true, openWorldHint: true }`; every write declares an explicit boolean `destructiveHint` — `false` only when another tool here undoes it (favorites and notify add/remove), `true` for `resy_book` and `resy_cancel`. `tests/tool-annotations.test.ts` enforces this and that `manifest.json` `tools[]` matches the served names.
 - Form-encoded bodies use `URLSearchParams`; `ResyClient.request` detects the instance and sets `Content-Type: application/x-www-form-urlencoded` automatically. Otherwise it JSON-encodes.
 - Times are normalized to `HH:MM` at the MCP boundary even though Resy uses `HH:MM:SS` on the wire.
 

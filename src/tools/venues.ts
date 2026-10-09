@@ -131,7 +131,7 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
     {
       description:
         'Search Resy for restaurants with availability. Returns venues including any bookable slot tokens for the requested date + party size. Defaults to NYC geo if lat/lng omitted.',
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: true },
       inputSchema: z.object({
         view: viewArg(),
         query: z.string().optional().describe('Venue name or keyword'),
@@ -177,7 +177,7 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
     {
       description:
         'List available reservation slots at a specific venue for a date + party size. Returns slot config_tokens suitable for booking. Tokens expire quickly; book soon after fetching.',
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: true },
       inputSchema: z.object({
         venue_id: z.number().int().positive(),
         date: z.string().describe('YYYY-MM-DD'),
@@ -193,7 +193,7 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
     'resy_get_venue',
     {
       description: 'Get full details for a single Resy venue by id.',
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: true },
       inputSchema: z.object({
         venue_id: z.number().int().positive(),
       }),
