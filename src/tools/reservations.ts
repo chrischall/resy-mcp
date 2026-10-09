@@ -432,7 +432,7 @@ export function registerReservationTools(
     {
       description:
         "List the user's Resy reservations. Defaults to upcoming; pass scope=\"past\" or \"all\" to broaden. Each result includes the resy_token needed for cancellation, plus occasion/special_request/cancellability.",
-      annotations: { readOnlyHint: true },
+      annotations: { readOnlyHint: true, openWorldHint: true },
       inputSchema: z.object({
         scope: z.enum(['upcoming', 'past', 'all']).optional(),
       }),
@@ -466,7 +466,7 @@ export function registerReservationTools(
         '`outcome` ("cancelled", "not_cancelled", or "unknown"). On "unknown", `cancelled` is false but the ' +
         'reservation MAY have been cancelled — check resy_list_reservations before retrying.',
       annotations: {
-        ...toolAnnotations({ title: 'Cancel a Resy reservation', readOnly: false }),
+        ...toolAnnotations({ title: 'Cancel a Resy reservation', readOnly: false, openWorld: true }),
         destructiveHint: true,
       },
       inputSchema: z.object({
@@ -627,7 +627,7 @@ export function registerReservationTools(
         "Uses the user's default payment method unless payment_method_id is supplied (it must be one of the " +
         'saved cards from resy_list_payment_methods; the preview names the card by brand and last-4).',
       annotations: {
-        ...toolAnnotations({ title: 'Book a Resy reservation', readOnly: false }),
+        ...toolAnnotations({ title: 'Book a Resy reservation', readOnly: false, openWorld: true }),
         destructiveHint: true,
       },
       inputSchema: z.object({

@@ -35,7 +35,14 @@
       "env": {
         "RESY_EMAIL": "${user_config.resy_email}",
         "RESY_PASSWORD": "${user_config.resy_password}",
-        "RESY_AUTH_TOKEN": "${user_config.resy_auth_token}"
+        "RESY_AUTH_TOKEN": "${user_config.resy_auth_token}",
+        "RESY_DISABLE_FETCHPROXY": "${user_config.resy_disable_fetchproxy}",
+        "RESY_API_KEY": "${user_config.resy_api_key}",
+        "RESY_TOKEN_CACHE": "${user_config.resy_token_cache}",
+        "RESY_TOKEN_FILE": "${user_config.resy_token_file}",
+        "RESY_API_KEY_FILE": "${user_config.resy_api_key_file}",
+        "RESY_CAPTURE_TIMEOUT": "${user_config.resy_capture_timeout}",
+        "RESY_WS_PORT": "${user_config.resy_ws_port}"
       }
     }
   },
@@ -59,6 +66,48 @@
       "description": "Pre-obtained x-resy-auth-token. Overrides email/password and the ContextMint Bridge path. Power users / CI only.",
       "required": false,
       "sensitive": true
+    },
+    "resy_disable_fetchproxy": {
+      "type": "string",
+      "title": "Disable fetchproxy fallback",
+      "description": "Set to '1' to disable the fetchproxy fallback (forces RESY_EMAIL+PASSWORD or RESY_AUTH_TOKEN).",
+      "required": false
+    },
+    "resy_api_key": {
+      "type": "string",
+      "title": "Resy API key (optional pin)",
+      "description": "Pin the api key, beating both the key captured from the live site and the compiled-in default. Rotation does not require it: the key is captured and cached automatically.",
+      "required": false
+    },
+    "resy_token_cache": {
+      "type": "string",
+      "title": "Token cache",
+      "description": "Set to false to disable the on-disk token cache and re-authenticate on every process start. Defaults to enabled.",
+      "required": false
+    },
+    "resy_token_file": {
+      "type": "string",
+      "title": "Token cache file",
+      "description": "Absolute path for the token cache file. Defaults to $MCP_DATA_DIR/.resy-mcp/token.json.",
+      "required": false
+    },
+    "resy_api_key_file": {
+      "type": "string",
+      "title": "API-key cache file",
+      "description": "Absolute path for the api-key cache file. Defaults to $MCP_DATA_DIR/.resy-mcp/api-key.json. Holds the bare key captured from the live site, which takes precedence over the compiled-in default.",
+      "required": false
+    },
+    "resy_capture_timeout": {
+      "type": "string",
+      "title": "Bridge capture timeout (seconds)",
+      "description": "Seconds to wait for the signed-in page to make an API call the bridge can read the auth token from. Defaults to 30. Capture resolves on the next matching request, so an idle tab needs a longer window than a busy one.",
+      "required": false
+    },
+    "resy_ws_port": {
+      "type": "string",
+      "title": "fetchproxy bridge port",
+      "description": "Port for the fetchproxy bridge. The whole fleet shares 37149 (the ContextMint Bridge extension dials it), so override only for local development, test isolation, or a hosted bridged registration — this is the variable to name in the registration's bridgePortEnv.",
+      "required": false
     }
   },
   "tools": [
