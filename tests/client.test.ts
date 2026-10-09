@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createFileStatePersistence, type BearerTokens } from '@chrischall/mcp-utils/session';
 
 process.env.RESY_EMAIL = 'test@example.com';
 process.env.RESY_PASSWORD = 'pw';
@@ -799,6 +803,32 @@ describe('ResyClient', () => {
         await client.request('GET', '/x');
         expect(mintTokenViaFetchproxy).toHaveBeenCalledTimes(2);
         expect(mockFetch.mock.calls[2][1].headers['x-resy-auth-token']).toBe('fp-new');
+      });
+
+      it('re-mints through the bridge when the cache holds a forever token from before the fix', async () => {
+        process.env.RESY_EMAIL = '';
+        process.env.RESY_PASSWORD = '';
+        const dir = mkdtempSync(join(tmpdir(), 'resy-legacy-'));
+        try {
+          process.env.RESY_TOKEN_CACHE = 'true';
+          process.env.RESY_TOKEN_FILE = join(dir, 'token.json');
+          // Exactly what an earlier version left on disk: the plain
+          // 'fetchproxy' binding and the NEVER_EXPIRES stamp.
+          createFileStatePersistence<BearerTokens>({
+            filePath: join(dir, 'token.json'),
+            boundTo: 'fetchproxy',
+            validate: (raw) => raw as BearerTokens,
+          }).save({ accessToken: 'fp-stale', refreshToken: 'resy-reauth', expiresAt: Date.UTC(9999, 0, 1) });
+          mintTokenViaFetchproxy.mockResolvedValueOnce('fp-fresh');
+          const mockFetch = vi.fn().mockImplementation(ok);
+          vi.stubGlobal('fetch', mockFetch);
+
+          await new ResyClient().request('GET', '/x');
+          expect(mintTokenViaFetchproxy).toHaveBeenCalledTimes(1);
+          expect(mockFetch.mock.calls[0][1].headers['x-resy-auth-token']).toBe('fp-fresh');
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
       });
 
       it('a password-login token is still kept until Resy refuses it', async () => {

@@ -3,6 +3,8 @@ import { mkdtempSync, rmSync, readFileSync, writeFileSync, statSync, existsSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { createFileStatePersistence, type BearerTokens } from '@chrischall/mcp-utils/session';
+
 import {
   tokenCachePath,
   createTokenCache,
@@ -127,6 +129,26 @@ describe('credential binding', () => {
     createTokenCache(pw())!.save(token());
     const bridge = { MCP_DATA_DIR: dir, RESY_TOKEN_CACHE: 'true' };
     expect(createTokenCache(bridge)!.load()).toBeNull();
+  });
+
+  it('discards a fetchproxy token cached before bridge tokens expired (fleet-audit#683)', () => {
+    // Before the fix a bridge token was written with the far-future
+    // NEVER_EXPIRES stamp under the plain 'fetchproxy' binding. Restoring it
+    // as written would keep acting for whatever account the browser held back
+    // then, so an upgrade must not read that record back.
+    createFileStatePersistence<BearerTokens>({
+      filePath: cacheFile(dir),
+      boundTo: 'fetchproxy',
+      validate: (raw) => raw as BearerTokens,
+    }).save(token());
+    const bridge = { MCP_DATA_DIR: dir, RESY_TOKEN_CACHE: 'true' };
+    expect(createTokenCache(bridge)!.load()).toBeNull();
+  });
+
+  it('still restores a fetchproxy token cached by this version', () => {
+    const bridge = { MCP_DATA_DIR: dir, RESY_TOKEN_CACHE: 'true' };
+    createTokenCache(bridge)!.save(token({ expiresAt: 123 }));
+    expect(createTokenCache(bridge)!.load()).toEqual(expect.objectContaining({ accessToken: 'TOK' }));
   });
 
   it('matches the email case-insensitively', () => {

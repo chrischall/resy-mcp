@@ -373,6 +373,19 @@ describe('reservation tools (list/cancel)', () => {
       });
     });
 
+    it('still cancels when the account lookup fails — the label is optional', async () => {
+      mockRequest.mockImplementation(async (method: string, path: string) => {
+        if (method === 'GET' && path === '/3/user/reservations') return LISTING;
+        if (method === 'GET' && path === '/2/user') throw new Error('Resy API error: 503 Service Unavailable');
+        if (method === 'POST' && path === '/3/cancel') return { ok: true, status: 'cancelled' };
+        throw new Error(`unexpected ${method} ${path}`);
+      });
+      const { first, result } = await confirmed('resy_cancel', { resy_token: 'rr://abc' });
+      expect(first.preview.account).toBeUndefined();
+      expect(result.isError).toBeFalsy();
+      expect(posts('/3/cancel')).toHaveLength(1);
+    });
+
     it('phase 1 returns confirmation-required with the preview and makes NO /3/cancel call', async () => {
       routeCancel(LISTING);
       const parsed = parse(await harness.callTool('resy_cancel', { resy_token: 'rr://abc' }));

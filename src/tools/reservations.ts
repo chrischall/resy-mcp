@@ -476,7 +476,11 @@ export function registerReservationTools(
       // preview the user confirms, and re-reading it on the token phase means a
       // change in between (a fee appearing) is refused as DRAFT_CHANGED.
       const info = await findReservationByToken(client, resy_token);
-      const account = accountLabel(await client.request<ResyUserSummary>('GET', '/2/user'));
+      // The account label is informational, so a failed /2/user read leaves it
+      // out rather than failing the cancel (the confirm phase included).
+      const account = await client
+        .request<ResyUserSummary>('GET', '/2/user')
+        .then(accountLabel, () => undefined);
       const preview = {
         preview: true,
         cancelled: false,
