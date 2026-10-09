@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.3.3](https://github.com/chrischall/resy-mcp/compare/v1.3.2...v1.3.3) (2026-10-09)
+
+
+### Bug Fixes
+
+* annotate tools truthfully and sync manifests with the served tools ([#279](https://github.com/chrischall/resy-mcp/issues/279)) ([69566dc](https://github.com/chrischall/resy-mcp/commit/69566dc1f4bc547c43a12620af53801177aafa10))
+* **cancel:** keep resy_cancel's cancelled field a boolean and report unknown outcomes via outcome ([#276](https://github.com/chrischall/resy-mcp/issues/276)) ([ce3e3b1](https://github.com/chrischall/resy-mcp/commit/ce3e3b15f8d4189d9a4936037b75117188676eab))
+* declare the plugin MCP config under the mcpServers key Claude Code reads ([#280](https://github.com/chrischall/resy-mcp/issues/280)) ([7b4bed3](https://github.com/chrischall/resy-mcp/commit/7b4bed37c04a1b32356e3fd98c6a986624adb4a7))
+* **deps:** bump source-map-js from 1.2.1 to 1.2.2 in the security group across 1 directory ([#278](https://github.com/chrischall/resy-mcp/issues/278)) ([c4f80c9](https://github.com/chrischall/resy-mcp/commit/c4f80c9964340ac961eb089e556c92b2d9792516))
+* **deps:** update @chrischall/mcp-utils to 3.0.0 ([#277](https://github.com/chrischall/resy-mcp/issues/277)) ([43b2df1](https://github.com/chrischall/resy-mcp/commit/43b2df125a080dd98dd0f4453139b67ab3fb22a6))
+* resolve low-severity audit findings ([#273](https://github.com/chrischall/resy-mcp/issues/273)) ([3b87181](https://github.com/chrischall/resy-mcp/commit/3b87181c26f787b82b804c871f5ad801007e537b))
+
 ## [1.3.2](https://github.com/chrischall/resy-mcp/compare/v1.3.1...v1.3.2) (2026-10-07)
 
 
