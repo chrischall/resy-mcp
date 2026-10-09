@@ -283,16 +283,26 @@ function cancellationFeeNote(c: DetailsCancellation | null): string {
   );
 }
 
-/** A resolved payment method: always an id, plus the last-4 when Resy exposes
- *  it (so the booking preview can show WHICH card would be charged). */
+/** A resolved payment method: always an id, plus the brand and last-4 when
+ *  Resy exposes them (so the booking preview can show WHICH card would be
+ *  charged). */
 interface ResolvedPayment {
   id: number;
+  brand?: string;
   last4?: string;
+}
+
+interface RawPaymentMethod {
+  id?: number;
+  is_default?: boolean;
+  brand?: string;
+  last_four?: string | number;
+  display?: string;
 }
 
 /** Pull the trailing 4 digits Resy surfaces for a card, from whichever field
  *  it uses (`last_four`, or embedded in a `display` label like "Visa •••• 4242"). */
-function paymentLast4(m: { last_four?: string | number; display?: string }): string | undefined {
+function paymentLast4(m: RawPaymentMethod): string | undefined {
   if (m.last_four !== undefined && m.last_four !== null && `${m.last_four}` !== '') {
     return `${m.last_four}`.slice(-4);
   }
@@ -301,26 +311,41 @@ function paymentLast4(m: { last_four?: string | number; display?: string }): str
 }
 
 /**
- * Return the user's default payment method (or first available), including the
- * last-4 when Resy exposes it. Throws a clear user-facing error if none are on
- * file.
+ * Resolve the card a booking would charge from the user's saved methods
+ * (GET /2/user), with its brand and last-4 when Resy exposes them.
+ *
+ * - No `requestedId` → the default method (or the first). Throws a clear
+ *   user-facing error if none are on file.
+ * - A `requestedId` → that method, looked up the same way, so the preview shows
+ *   "visa •••• 4242" rather than a bare id; an id that is not on file is
+ *   refused here rather than sent to Resy (fleet-audit#1101).
  */
-async function resolveDefaultPaymentMethod(client: ResyClient): Promise<ResolvedPayment> {
-  const user = await client.request<{
-    payment_methods?: Array<{
-      id?: number;
-      is_default?: boolean;
-      last_four?: string | number;
-      display?: string;
-    }>;
-  }>('GET', '/2/user');
+async function resolvePaymentMethod(
+  client: ResyClient,
+  requestedId: number | undefined
+): Promise<ResolvedPayment> {
+  const user = await client.request<{ payment_methods?: RawPaymentMethod[] }>('GET', '/2/user');
   const methods = user.payment_methods ?? [];
-  const def = methods.find((m) => m.is_default) ?? methods[0];
-  if (!def?.id) {
+  let method: RawPaymentMethod | undefined;
+  if (requestedId !== undefined) {
+    method = methods.find((m) => m.id === requestedId);
+    if (!method) {
+      throw new Error(
+        `unknown payment_method_id ${requestedId} — it is not one of your saved cards; see resy_list_payment_methods.`
+      );
+    }
+  } else {
+    method = methods.find((m) => m.is_default) ?? methods[0];
+  }
+  if (!method?.id) {
     throw new Error('No payment method on file. Add one at resy.com/account before booking.');
   }
-  const last4 = paymentLast4(def);
-  return { id: def.id, ...(last4 ? { last4 } : {}) };
+  const last4 = paymentLast4(method);
+  return {
+    id: method.id,
+    ...(method.brand ? { brand: method.brand } : {}),
+    ...(last4 ? { last4 } : {}),
+  };
 }
 
 /**
@@ -562,7 +587,8 @@ export function registerReservationTools(
         ' Before booking, it checks your existing reservations and refuses if you already hold one at ' +
         'this venue on this date (e.g. an earlier call that timed out but went through); pass ' +
         'allow_duplicate:true to book another anyway. ' +
-        "Uses the user's default payment method unless payment_method_id is supplied.",
+        "Uses the user's default payment method unless payment_method_id is supplied (it must be one of the " +
+        'saved cards from resy_list_payment_methods; the preview names the card by brand and last-4).',
       annotations: {
         ...toolAnnotations({ title: 'Book a Resy reservation', readOnly: false }),
         destructiveHint: true,
@@ -684,11 +710,8 @@ export function registerReservationTools(
         slot_type_fallback: chosen.type,
       });
 
-      // 4. resolve payment method (read-only when defaulting)
-      const payment: ResolvedPayment =
-        payment_method_id !== undefined
-          ? { id: payment_method_id }
-          : await resolveDefaultPaymentMethod(client);
+      // 4. resolve the payment method against the saved cards (read-only)
+      const payment = await resolvePaymentMethod(client, payment_method_id);
 
       // 5. book only when the call names the exact slot a preview showed.
       //    Everything above is a read; the booking POST below is the only
@@ -734,7 +757,7 @@ export function registerReservationTools(
         party_size,
         slot_type: details.slot_type,
         terms_token: termsToken,
-        payment_method: { id: payment.id, ...(payment.last4 ? { last4: payment.last4 } : {}) },
+        payment_method: payment,
         // The terms the card is committed to, straight from /3/details —
         // null means Resy stated none, not that there are none.
         cancellation_policy: details.cancellation,

@@ -531,7 +531,7 @@ describe('reservation tools (list/cancel)', () => {
       slots: Array<{ token: string; time: string; type?: string }>;
       /** GET /3/details — a fixed body, or one chosen from the requested path (config_id). */
       details?: Record<string, unknown> | ((path: string) => Record<string, unknown>);
-      paymentMethods?: Array<{ id: number; is_default?: boolean; last_four?: string }>;
+      paymentMethods?: Array<{ id: number; is_default?: boolean; last_four?: string; brand?: string }>;
       bookResponse?: Record<string, unknown>;
       /** GET /3/user/reservations — the duplicate check phase 2 runs before POST /3/book. */
       existingReservations?: { reservations: unknown[]; venues?: Record<string, { name: string }> };
@@ -987,7 +987,11 @@ describe('reservation tools (list/cancel)', () => {
       ).toBe('e8849ac90736a5e1');
     });
 
-    it('uses explicit payment_method_id when provided and skips /2/user', async () => {
+    // fleet-audit#1101: an explicit payment_method_id used to go to Resy
+    // unchecked, and the preview showed only the bare id. It is now looked up
+    // in /2/user so the user approves "visa •••• 4242", and an id that is not
+    // on file is refused before anything is booked.
+    it('uses an explicit payment_method_id, showing its brand and last-4 in the preview', async () => {
       routeBook({
         slots: [{ token: 'cfg', time: '19:00', type: 'DR' }],
         details: {
@@ -995,6 +999,10 @@ describe('reservation tools (list/cancel)', () => {
           venue: { name: 'X', venue_url_slug: 'x', location: { url_slug: 'c' } },
           config: { type: 'DR' },
         },
+        paymentMethods: [
+          { id: 55, is_default: true, last_four: '1111', brand: 'amex' },
+          { id: 42, last_four: '4242', brand: 'visa' },
+        ],
         bookResponse: { resy_token: 'rr://', reservation_id: 1, time_slot: '19:00', num_seats: 2 },
       });
 
@@ -1003,11 +1011,22 @@ describe('reservation tools (list/cancel)', () => {
         payment_method_id: 42, slot_type: 'DR', terms_token: bookingTermsToken('DR', null, null),
       });
 
-      expect(first.preview.payment_method).toEqual({ id: 42 });
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/2/user')).toBe(false);
+      expect(first.preview.payment_method).toEqual({ id: 42, brand: 'visa', last4: '4242' });
       expect(posts('/3/book')).toHaveLength(1);
       const bb = posts('/3/book')[0][2] as URLSearchParams;
       expect(JSON.parse(bb.get('struct_payment_method')!)).toEqual({ id: 42 });
+    });
+
+    it('refuses a payment_method_id that is not on file, and books nothing', async () => {
+      routeBook({
+        slots: [{ token: 'cfg-7pm', time: '19:00' }],
+        paymentMethods: [{ id: 55, is_default: true, last_four: '1111' }],
+      });
+      const result = await harness.callTool('resy_book', { ...BOOK_19, payment_method_id: 999 });
+      expect(result.isError).toBeTruthy();
+      const text = (result.content[0] as { text: string }).text;
+      expect(text).toMatch(/unknown payment_method_id 999.*resy_list_payment_methods/);
+      expect(posts('/3/book')).toHaveLength(0);
     });
 
     it('throws when no slots are available', async () => {
