@@ -232,6 +232,22 @@ export class ResyClient {
         // Narrow: match only auth-scoped phrases, not any mention of "token"
         // (Resy occasionally says things like "book_token expired" which is a
         // different failure and shouldn't trigger a re-login).
+        if (res.status === 500 && method.toUpperCase() !== 'GET' && looksLikeAuthFailure(500, text)) {
+          // A 500 on a write is ambiguous: Resy may have acted (created the
+          // reservation) before failing. Replaying it would re-send the write
+          // past the checks that ran before the first attempt — e.g. resy_book's
+          // duplicate guard (fleet-audit#1099). Surface it like a timed-out
+          // write instead: no re-mint, no replay, outcome UNKNOWN.
+          throw new ResyApiError(
+            res.status,
+            res.statusText,
+            method,
+            path,
+            text,
+            ' — Resy blamed authentication, but the outcome is UNKNOWN: it may already have completed it. ' +
+              'Check its effect (e.g. resy_list_reservations after a booking or cancel) before retrying.'
+          );
+        }
         if (looksLikeAuthFailure(res.status, text) && res.status !== 401) {
           // Re-wrap a 419 / auth-500 as a 401 so TokenManager.withAuth clears +
           // re-mints + replays once. The real status/body stay in `captured`.
@@ -398,8 +414,8 @@ export class ResyApiError extends Error {
   readonly status: number;
   readonly bodyPreview: string;
 
-  constructor(status: number, statusText: string, method: string, path: string, body: string) {
-    super(`Resy API error: ${status} ${statusText} for ${method} ${path}`);
+  constructor(status: number, statusText: string, method: string, path: string, body: string, note = '') {
+    super(`Resy API error: ${status} ${statusText} for ${method} ${path}${note}`);
     this.name = 'ResyApiError';
     this.status = status;
     this.bodyPreview = truncateErrorMessage(body);

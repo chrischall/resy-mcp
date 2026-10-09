@@ -616,6 +616,58 @@ describe('ResyClient', () => {
     expect(data).toEqual({ ok: 1 });
   });
 
+  // fleet-audit#1099: a 500 on a write is ambiguous — Resy may have created
+  // the reservation before failing — so an auth-shaped 500 on POST /3/book must
+  // not be replayed (that re-sends the booking past the duplicate guard). It
+  // surfaces as an UNKNOWN outcome, like a timed-out write.
+  it('does NOT replay a write on an auth-shaped 500; reports its outcome as UNKNOWN', async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't' }),
+      })
+      .mockResolvedValue({
+        ok: false, status: 500, statusText: 'Server Error',
+        headers: new Headers(),
+        text: async () => 'invalid auth token',
+      });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const client = new ResyClient();
+    await expect(
+      client.request('POST', '/3/book', new URLSearchParams({ book_token: 'BK' }))
+    ).rejects.toThrow(/500.*POST \/3\/book.*UNKNOWN.*resy_list_reservations/s);
+    expect(mockFetch).toHaveBeenCalledTimes(2); // login + the one POST — no re-login, no replay
+  });
+
+  it('still replays a write refused with a 419 (the request was not processed)', async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't' }),
+      })
+      .mockResolvedValueOnce({
+        ok: false, status: 419, statusText: 'Authentication Timeout',
+        headers: new Headers(),
+        text: async () => 'session expired',
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't2' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ resy_token: 'rr://x' }),
+      });
+    vi.stubGlobal('fetch', mockFetch);
+    const data = await new ResyClient().request('POST', '/3/book', new URLSearchParams({ book_token: 'BK' }));
+    expect(data).toEqual({ resy_token: 'rr://x' });
+  });
+
   it('does NOT treat 500 with non-auth "token" phrase as auth failure', async () => {
     // Regression guard: "book_token expired" contains "token" but is a
     // different failure mode (stale booking token), not an auth failure.
