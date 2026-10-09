@@ -291,6 +291,7 @@ describe('reservation tools (list/cancel)', () => {
         if (method === 'GET' && path === '/3/user/reservations') {
           return typeof listing === 'function' ? (listing as () => unknown)() : listing;
         }
+        if (method === 'GET' && path === '/2/user') return { em_address: 'diner@example.com' };
         if (method === 'POST' && path === '/3/cancel') return cancelResponse;
         throw new Error(`unexpected ${method} ${path}`);
       });
@@ -376,9 +377,11 @@ describe('reservation tools (list/cancel)', () => {
       routeCancel(LISTING);
       const parsed = parse(await harness.callTool('resy_cancel', { resy_token: 'rr://abc' }));
 
-      // Only the read happened — never POST /3/cancel.
-      expect(mockRequest.mock.calls).toEqual([['GET', '/3/user/reservations']]);
+      // Only reads happened — never POST /3/cancel.
+      expect(mockRequest.mock.calls.every((c) => c[0] === 'GET')).toBe(true);
       expect(posts('/3/cancel')).toHaveLength(0);
+      // fleet-audit#683: the preview names the Resy account that would act.
+      expect(parsed.preview.account).toBe('diner@example.com');
 
       expect(parsed.status).toBe('confirmation-required');
       expect(parsed.action).toBe('resy.cancel');
@@ -548,7 +551,7 @@ describe('reservation tools (list/cancel)', () => {
           };
         }
         if (method === 'GET' && path === '/2/user') {
-          return { payment_methods: opts.paymentMethods ?? [{ id: 55, is_default: true }] };
+          return { em_address: 'diner@example.com', payment_methods: opts.paymentMethods ?? [{ id: 55, is_default: true }] };
         }
         if (method === 'GET' && path === '/3/user/reservations') {
           return opts.existingReservations ?? { reservations: [], venues: {} };
@@ -1066,6 +1069,8 @@ describe('reservation tools (list/cancel)', () => {
       expect(posts('/3/book')).toHaveLength(0);
       expect(mockRequest.mock.calls.some((c) => c[1] === '/3/user/reservations')).toBe(true);
       expect(parsed.preview).not.toHaveProperty('existing_reservations');
+      // fleet-audit#683: the preview names the Resy account that would book.
+      expect(parsed.preview.account).toBe('diner@example.com');
 
       expect(parsed.status).toBe('confirmation-required');
       expect(parsed.action).toBe('resy.book');

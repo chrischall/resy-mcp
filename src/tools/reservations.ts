@@ -323,8 +323,8 @@ function paymentLast4(m: RawPaymentMethod): string | undefined {
 async function resolvePaymentMethod(
   client: ResyClient,
   requestedId: number | undefined
-): Promise<ResolvedPayment> {
-  const user = await client.request<{ payment_methods?: RawPaymentMethod[] }>('GET', '/2/user');
+): Promise<{ payment: ResolvedPayment; account: string | undefined }> {
+  const user = await client.request<ResyUserSummary>('GET', '/2/user');
   const methods = user.payment_methods ?? [];
   let method: RawPaymentMethod | undefined;
   if (requestedId !== undefined) {
@@ -342,10 +342,29 @@ async function resolvePaymentMethod(
   }
   const last4 = paymentLast4(method);
   return {
-    id: method.id,
-    ...(method.brand ? { brand: method.brand } : {}),
-    ...(last4 ? { last4 } : {}),
+    payment: {
+      id: method.id,
+      ...(method.brand ? { brand: method.brand } : {}),
+      ...(last4 ? { last4 } : {}),
+    },
+    account: accountLabel(user),
   };
+}
+
+/** The slice of GET /2/user the write previews read. */
+interface ResyUserSummary {
+  em_address?: string;
+  payment_methods?: RawPaymentMethod[];
+}
+
+/**
+ * Which Resy account a write would act as — its email — for the booking and
+ * cancel previews. The token may have been lifted from a browser that has since
+ * switched accounts, so the user should see whose reservation this is before
+ * approving (fleet-audit#683).
+ */
+function accountLabel(user: ResyUserSummary): string | undefined {
+  return typeof user.em_address === 'string' && user.em_address !== '' ? user.em_address : undefined;
 }
 
 /**
@@ -441,7 +460,7 @@ export function registerReservationTools(
     {
       description:
         'Cancel a Resy reservation by its resy_token (the rr://... identifier returned from resy_book or resy_list_reservations). ' +
-        'The confirmation preview shows the venue, date, time, party size, and any cancellation fee. ' +
+        'The confirmation preview shows the Resy account, venue, date, time, party size, and any cancellation fee. ' +
         CONFIRM_FLOW,
       annotations: {
         ...toolAnnotations({ title: 'Cancel a Resy reservation', readOnly: false }),
@@ -457,6 +476,7 @@ export function registerReservationTools(
       // preview the user confirms, and re-reading it on the token phase means a
       // change in between (a fee appearing) is refused as DRAFT_CHANGED.
       const info = await findReservationByToken(client, resy_token);
+      const account = accountLabel(await client.request<ResyUserSummary>('GET', '/2/user'));
       const preview = {
         preview: true,
         cancelled: false,
@@ -468,6 +488,7 @@ export function registerReservationTools(
             }`
           : 'Nothing has been cancelled yet. This resy_token was not found in your reservation list; confirming attempts the cancellation anyway.',
         resy_token,
+        ...(account ? { account } : {}),
         ...(info
           ? {
               venue_name: info.venue_name,
@@ -569,7 +590,7 @@ export function registerReservationTools(
     {
       description:
         "Book a reservation. Composite tool: internally runs find-slots → get booking details → book. " +
-        'It books ONLY the exact slot a preview showed. The first call returns a preview (venue, date, party size, ' +
+        'It books ONLY the exact slot a preview showed. The first call returns a preview (the Resy account, venue, date, party size, ' +
         "the exact slot time that would be booked, its slot_type, the payment card last-4, and the slot's " +
         'cancellation_policy / payment_terms — any no-show fee or deposit) and books nothing. ' +
         'Pass desired_time (HH:MM, 24-hour) to target a specific slot. If your exact desired_time is not ' +
@@ -711,7 +732,7 @@ export function registerReservationTools(
       });
 
       // 4. resolve the payment method against the saved cards (read-only)
-      const payment = await resolvePaymentMethod(client, payment_method_id);
+      const { payment, account } = await resolvePaymentMethod(client, payment_method_id);
 
       // 5. duplicate guard (read-only): what the user already holds here that
       //    day — most likely an earlier resy_book whose response was lost to a
@@ -755,6 +776,7 @@ export function registerReservationTools(
         preview: true,
         action: 'book',
         booked: false,
+        ...(account ? { account } : {}),
         venue_name: details.venue_name,
         venue_url: details.venue_url,
         date,
@@ -788,6 +810,7 @@ export function registerReservationTools(
         action: 'resy.book',
         message: 'Review and confirm this booking:',
         details: {
+          ...(account ? { account } : {}),
           venue_name: details.venue_name,
           date,
           time: chosen.time,

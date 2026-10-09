@@ -38,9 +38,11 @@ const BASE_URL = 'https://api.resy.com';
 //   • The TokenManager is seeded with a placeholder access token that is
 //     already "expired" (expiresAt: 0), so the FIRST getAccessToken() mints
 //     lazily via the refresh callback — preserving the prior lazy-auth timing.
-//   • After a successful mint we report expiresAt: +Infinity, so the token is
-//     cached indefinitely and never proactively re-minted; only a reactive
-//     401/419/auth-500 (handled below) clears and re-mints it.
+//   • After a password or RESY_AUTH_TOKEN mint we report a far-future
+//     expiresAt, so the token is never proactively re-minted; only a reactive
+//     401/419/auth-500 (handled below) clears and re-mints it. A token lifted
+//     from the browser (fetchproxy) instead lapses after BRIDGE_TOKEN_TTL_MS,
+//     so a resy.com sign-out or account switch is picked up within a day.
 //   • TokenManager.refreshNow() refuses to run without a refresh token, so we
 //     hand it a constant sentinel as the "refresh token". It is never sent on
 //     the wire — it only keeps the single-flight refresh path armed.
@@ -51,6 +53,17 @@ const REFRESH_SENTINEL = 'resy-reauth';
 // rejected on every load — doing nothing, silently. Any finite value past the
 // life of a session behaves identically to Infinity for `needsRefresh`.
 const NEVER_EXPIRES = Date.UTC(9999, 0, 1);
+
+/**
+ * How long a token lifted from the browser (fetchproxy path) is trusted before
+ * it is lifted afresh. A password login or RESY_AUTH_TOKEN names its account
+ * in the environment, so those are kept until Resy refuses them; a bridge token
+ * names whichever account the browser was signed into at mint time, and kept
+ * forever it went on acting for that account after the user signed out of
+ * resy.com or into another one (fleet-audit#683). A day bounds that window at
+ * the cost of one bridge round trip per day.
+ */
+const BRIDGE_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 
 const SPOOF_HEADERS = {
   Origin: 'https://resy.com',
@@ -131,11 +144,14 @@ export class ResyClient {
       accessToken: string;
       refreshToken: string;
       expiresAt: number;
-    }> => ({
-      accessToken: await this.mintToken(),
-      refreshToken: REFRESH_SENTINEL,
-      expiresAt: NEVER_EXPIRES,
-    });
+    }> => {
+      const { token, viaBridge } = await this.mintToken();
+      return {
+        accessToken: token,
+        refreshToken: REFRESH_SENTINEL,
+        expiresAt: viaBridge ? Date.now() + BRIDGE_TOKEN_TTL_MS : NEVER_EXPIRES,
+      };
+    };
     this.tokens = new TokenManager({
       initial: mint,
       refresh: mint,
@@ -329,23 +345,23 @@ export class ResyClient {
    * env change between calls is picked up at retry time, and a
    * fetchproxy-minted session re-mints via fetchproxy).
    */
-  private async mintToken(): Promise<string> {
+  private async mintToken(): Promise<{ token: string; viaBridge: boolean }> {
     // Path 1: direct token override
     const envToken = readVar('RESY_AUTH_TOKEN');
     if (envToken) {
-      return envToken;
+      return { token: envToken, viaBridge: false };
     }
 
     // Path 2: legacy password login
     if (readVar('RESY_EMAIL') && readVar('RESY_PASSWORD')) {
-      return this.loginWithPassword();
+      return { token: await this.loginWithPassword(), viaBridge: false };
     }
 
     // Path 3: fetchproxy fallback. parseBoolEnv accepts 1/true/yes/on
     // (case-insensitively) like every sibling repo, not just the literal '1'.
     if (!parseBoolEnv('RESY_DISABLE_FETCHPROXY')) {
       try {
-        return await mintTokenViaFetchproxy();
+        return { token: await mintTokenViaFetchproxy(), viaBridge: true };
       } catch (e) {
         throw new Error(
           `Resy auth: fetchproxy fallback failed (${(e as Error).message}). ` +

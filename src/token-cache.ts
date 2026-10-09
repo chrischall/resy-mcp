@@ -50,7 +50,9 @@ function isToken(raw: unknown): raw is BearerTokens {
  *  - fetchproxy — the token is lifted from a signed-in browser tab. Worth
  *    caching most of all: a cached token lets a cold start proceed with no
  *    browser present at all, which is the difference between working and not on
- *    a host that has none.
+ *    a host that has none. Such a token carries a one-day expiry (see
+ *    BRIDGE_TOKEN_TTL_MS in client.ts), so the cache never keeps acting for an
+ *    account the browser has since signed out of for longer than that.
  *
  * The mode is part of the binding, so switching between them discards the old
  * record rather than reusing a token minted a different way.

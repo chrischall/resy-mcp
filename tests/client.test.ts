@@ -768,6 +768,60 @@ describe('ResyClient', () => {
       expect(mintTokenViaFetchproxy).not.toHaveBeenCalled();
     });
 
+    // fleet-audit#683: a bridge-minted token used to be cached forever, so
+    // after signing out of resy.com — or into a different account — the MCP
+    // kept acting on the old account until Resy itself refused the token. It
+    // now lapses after a day and is lifted afresh from the browser.
+    describe('a bridge-minted token is not kept forever', () => {
+      const ok = () =>
+        Promise.resolve({
+          ok: true, status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          text: async () => JSON.stringify({ ok: true }),
+        });
+
+      it('re-mints through the bridge once a day has passed', async () => {
+        process.env.RESY_EMAIL = '';
+        process.env.RESY_PASSWORD = '';
+        mintTokenViaFetchproxy.mockResolvedValueOnce('fp-old').mockResolvedValueOnce('fp-new');
+        const mockFetch = vi.fn().mockImplementation(ok);
+        vi.stubGlobal('fetch', mockFetch);
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(Date.UTC(2026, 9, 1, 12));
+
+        const client = new ResyClient();
+        await client.request('GET', '/x');
+        vi.setSystemTime(Date.UTC(2026, 9, 1, 23));
+        await client.request('GET', '/x');
+        expect(mintTokenViaFetchproxy).toHaveBeenCalledTimes(1);
+
+        vi.setSystemTime(Date.UTC(2026, 9, 2, 13));
+        await client.request('GET', '/x');
+        expect(mintTokenViaFetchproxy).toHaveBeenCalledTimes(2);
+        expect(mockFetch.mock.calls[2][1].headers['x-resy-auth-token']).toBe('fp-new');
+      });
+
+      it('a password-login token is still kept until Resy refuses it', async () => {
+        const mockFetch = vi.fn()
+          .mockResolvedValueOnce({
+            ok: true, status: 200,
+            headers: new Headers({ 'content-type': 'application/json' }),
+            text: async () => JSON.stringify({ token: 'pw-tk' }),
+          })
+          .mockImplementation(ok);
+        vi.stubGlobal('fetch', mockFetch);
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(Date.UTC(2026, 9, 1, 12));
+
+        const client = new ResyClient();
+        await client.request('GET', '/x');
+        vi.setSystemTime(Date.UTC(2026, 10, 1, 12));
+        await client.request('GET', '/x');
+        const logins = mockFetch.mock.calls.filter((c: unknown[]) => String(c[0]).includes('/3/auth/password'));
+        expect(logins).toHaveLength(1);
+      });
+    });
+
     it('refreshToken via fetchproxy on 401 retry', async () => {
       // Start without password env so the initial token comes from fetchproxy
       process.env.RESY_EMAIL = '';
