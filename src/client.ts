@@ -83,6 +83,30 @@ export interface ResyClientOptions {
   requestTimeoutMs?: number;
 }
 
+/** One answered attempt, read while its body was still in hand. */
+interface Captured {
+  text: string;
+  status: number;
+  statusText: string;
+  ok: boolean;
+  headers: Headers;
+}
+
+/**
+ * Parse a 2xx body. A WAF/HTML interstitial served with a 200 used to escape
+ * as a bare "Unexpected token <" naming no endpoint (fleet-audit#682).
+ */
+function parseJsonBody<T>(text: string, method: string, path: string): T {
+  if (!text) return null as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(
+      `Resy returned a non-JSON response from ${method} ${path}: ${truncateErrorMessage(text)}`
+    );
+  }
+}
+
 export type ResyBody =
   | undefined
   | Record<string, unknown>
@@ -197,74 +221,55 @@ export class ResyClient {
     // burst of 401s from double-refreshing. Resy also flags 419 and auth-shaped
     // 500s as auth failures, which withAuth can't see (it only keys on 401), so
     // we normalize them to a synthetic 401 to drive the same one-shot replay.
-    let captured: { text: string; status: number; statusText: string; ok: boolean; headers: Headers } | null = null;
-    await this.tokens.withAuth(async (token) => {
-      const { res, text } = await this.timedFetch(method, path, `${BASE_URL}${path}`, {
-        ...init,
-        headers: buildHeaders(token),
+    const attempt = async (): Promise<Captured> => {
+      let captured: Captured | null = null;
+      await this.tokens.withAuth(async (token) => {
+        const { res, text } = await this.timedFetch(method, path, `${BASE_URL}${path}`, {
+          ...init,
+          headers: buildHeaders(token),
+        });
+        captured = { text, status: res.status, statusText: res.statusText, ok: res.ok, headers: res.headers };
+        // Narrow: match only auth-scoped phrases, not any mention of "token"
+        // (Resy occasionally says things like "book_token expired" which is a
+        // different failure and shouldn't trigger a re-login).
+        if (looksLikeAuthFailure(res.status, text) && res.status !== 401) {
+          // Re-wrap a 419 / auth-500 as a 401 so TokenManager.withAuth clears +
+          // re-mints + replays once. The real status/body stay in `captured`.
+          return new Response(null, { status: 401, statusText: res.statusText });
+        }
+        return res;
       });
-      captured = { text, status: res.status, statusText: res.statusText, ok: res.ok, headers: res.headers };
-      // Narrow: match only auth-scoped phrases, not any mention of "token"
-      // (Resy occasionally says things like "book_token expired" which is a
-      // different failure and shouldn't trigger a re-login).
-      if (looksLikeAuthFailure(res.status, text) && res.status !== 401) {
-        // Re-wrap a 419 / auth-500 as a 401 so TokenManager.withAuth clears +
-        // re-mints + replays once. The real status/body stay in `captured`.
-        return new Response(null, { status: 401, statusText: res.statusText });
-      }
-      return res;
-    });
+      return captured!;
+    };
 
-    const { text, status, statusText, ok, headers } = captured!;
+    let result = await attempt();
 
-    if (looksLikeAuthFailure(status, text)) {
-      throw new ResyAuthError();
-    }
-
-    if (status === 429) {
-      const delayMs = parseRetryAfterMs(headers.get('retry-after'), {
+    if (result.status === 429) {
+      // 429 backoff, then ONE more attempt — through withAuth like the first,
+      // so a token that lapsed during the wait is re-minted rather than failing
+      // the call outright (fleet-audit#682).
+      const delayMs = parseRetryAfterMs(result.headers.get('retry-after'), {
         defaultMs: RATE_LIMIT_DEFAULT_DELAY_MS,
         capMs: RATE_LIMIT_MAX_DELAY_MS,
       });
       await new Promise<void>((r) => setTimeout(r, delayMs));
-      return this.requestRetry<T>(method, path, init, buildHeaders);
+      result = await attempt();
+      if (result.status === 429) {
+        throw new Error('Rate limited by Resy API');
+      }
+    }
+
+    const { text, status, statusText, ok } = result;
+
+    if (looksLikeAuthFailure(status, text)) {
+      throw new ResyAuthError(this.describeCredential().source);
     }
 
     if (!ok) {
       throw new ResyApiError(status, statusText, method, path, text);
     }
 
-    return (text ? JSON.parse(text) : null) as T;
-  }
-
-  /**
-   * The 429 backoff retry: a single direct re-issue of the request under the
-   * current token (no second token re-mint — 429 is rate-limiting, not auth).
-   * A persisting 429 surfaces as a rate-limit error; any other status flows
-   * through the normal success/error handling.
-   */
-  private async requestRetry<T>(
-    method: string,
-    path: string,
-    init: Omit<RequestInit, 'headers'>,
-    buildHeaders: (token: string) => Record<string, string>
-  ): Promise<T> {
-    const token = await this.tokens.getAccessToken();
-    const { res, text } = await this.timedFetch(method, path, `${BASE_URL}${path}`, {
-      ...init,
-      headers: buildHeaders(token),
-    });
-
-    if (res.status === 429) {
-      throw new Error('Rate limited by Resy API');
-    }
-    if (looksLikeAuthFailure(res.status, text)) {
-      throw new ResyAuthError();
-    }
-    if (!res.ok) {
-      throw new ResyApiError(res.status, res.statusText, method, path, text);
-    }
-    return (text ? JSON.parse(text) : null) as T;
+    return parseJsonBody<T>(text, method, path);
   }
 
   /**
@@ -366,7 +371,7 @@ export class ResyClient {
       );
     }
 
-    const data = text ? JSON.parse(text) : {};
+    const data = (parseJsonBody<Record<string, any> | null>(text, 'POST', '/3/auth/password') ?? {});
     const token =
       (typeof data.token === 'string' && data.token) ||
       (typeof data?.id?.token === 'string' && data.id.token) ||
@@ -411,9 +416,26 @@ export class ResyApiError extends Error {
  * The message is unchanged, so what a real tool reports is unchanged.
  */
 export class ResyAuthError extends Error {
-  constructor() {
-    super('Resy session rejected — verify RESY_EMAIL / RESY_PASSWORD');
+  /**
+   * @param source the configured credential, as `describeCredential().source`
+   *   names it, so the message points at the fix that applies — it used to
+   *   blame RESY_EMAIL / RESY_PASSWORD whatever minted the token
+   *   (fleet-audit#682).
+   */
+  constructor(source: string | null = 'password login') {
+    super(`Resy session rejected — ${authRemedy(source)}`);
     this.name = 'ResyAuthError';
+  }
+}
+
+function authRemedy(source: string | null): string {
+  switch (source) {
+    case 'env token (RESY_AUTH_TOKEN)':
+      return 'RESY_AUTH_TOKEN was refused; replace it with a fresh token, or unset it to sign in another way';
+    case 'fetchproxy':
+      return 'the token from your resy.com browser tab was refused; sign in to resy.com again in that browser';
+    default:
+      return 'verify RESY_EMAIL / RESY_PASSWORD';
   }
 }
 
