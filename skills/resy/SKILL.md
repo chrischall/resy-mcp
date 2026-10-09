@@ -83,9 +83,9 @@ Or place `.env` in the project directory with `RESY_EMAIL=` and `RESY_PASSWORD=`
 ### Reservations
 | Tool | Description |
 |------|-------------|
-| `resy_book(venue_id, date, party_size, desired_time?, slot_type?, terms_token?, allow_closest_time?, lat?, lng?, payment_method_id?, allow_duplicate?, confirmToken?)` | Composite: find fresh slot → details → book. It books ONLY the exact previewed slot. `desired_time` is "HH:MM" (24h); an unavailable time returns the available times unless `allow_closest_time: true` previews the nearest. `slot_type` picks a seating (Dining Room / Bar / Patio) when several share a time. On a client without prompts, the preview comes back as `confirmation-required` with a `confirmToken` bound to that slot's time, seating type and terms; after the user approves, repeat the call with the preview's time as `desired_time` and the `confirmToken` (see `MCP_CONFIRM_MODE`). On a client with prompts, call again with `desired_time` + `slot_type` + `terms_token` (a fingerprint of the seating type and cancellation/payment terms) from the preview and the user is prompted. If the slot, its type or its terms changed, nothing is booked and a fresh preview is returned. The booking refuses if you already hold a reservation at that venue that date (e.g. an earlier timed-out call that went through) unless `allow_duplicate: true`. Uses default payment method unless `payment_method_id` is supplied. |
+| `resy_book(venue_id, date, party_size, desired_time?, slot_type?, terms_token?, allow_closest_time?, lat?, lng?, payment_method_id?, allow_duplicate?, confirmToken?)` | Composite: find fresh slot → details → book. It books ONLY the exact previewed slot. `desired_time` is "HH:MM" (24h); an unavailable time returns the available times unless `allow_closest_time: true` previews the nearest. `slot_type` picks a seating (Dining Room / Bar / Patio) when several share a time. On a client without prompts, the preview comes back as `confirmation-required` with a `confirmToken` bound to that slot's time, seating type and terms; after the user approves, repeat the call with the preview's time as `desired_time` and the `confirmToken` (see `MCP_CONFIRM_MODE`). On a client with prompts (unless the server sets `MCP_CONFIRM_ELICITATION=off`, which sends every client down the `confirmToken` path), call again with `desired_time` + `slot_type` + `terms_token` (a fingerprint of the seating type and cancellation/payment terms) from the preview and the user is prompted. If the slot, its type or its terms changed, nothing is booked and a fresh preview is returned. The booking refuses if you already hold a reservation at that venue that date (e.g. an earlier timed-out call that went through) unless `allow_duplicate: true` — checked before you are asked to confirm, so an approval is never wasted; with `allow_duplicate: true` the preview lists the existing reservation(s). Uses default payment method unless `payment_method_id` is supplied; either way the preview names the card (brand and last-4), and an id that is not one of your saved cards is refused. |
 | `resy_list_reservations(scope?)` | List reservations. `scope`: `upcoming` (default), `past`, or `all`. Each result includes the `resy_token` needed for cancellation. |
-| `resy_cancel(resy_token, confirmToken?)` | Cancel by `resy_token` (`rr://…`). Asks the user to confirm first (venue, date, time, party size, any fee): a prompt where the client supports one, otherwise a preview plus `confirmToken` that a repeat call passes back. Inspects the response body to set `cancelled: true/false` honestly. |
+| `resy_cancel(resy_token, confirmToken?)` | Cancel by `resy_token` (`rr://…`). Asks the user to confirm first (the Resy account, venue, date, time, party size, any fee): a prompt where the client supports one (unless `MCP_CONFIRM_ELICITATION=off`), otherwise a preview plus `confirmToken` that a repeat call passes back. Sets `cancelled` from an explicit success/failure in Resy's response, and otherwise by checking whether the reservation is still listed (`null` = outcome unknown — check `resy_list_reservations`). |
 
 ### Favorites
 | Tool | Description |
@@ -154,12 +154,14 @@ resy_search_venues(query: "carbone", date: "2026-05-01", party_size: 2)
 resy_book(venue_id, date: "2026-05-01", party_size: 2, desired_time: "19:00")
   → preview: time, slot_type, terms_token, fees, payment card; show it to the user
 
-  client WITHOUT prompts (claude.ai, Claude Desktop): that preview is
+  client WITHOUT prompts (claude.ai, Claude Desktop), or any client when the
+  server sets MCP_CONFIRM_ELICITATION=off: that preview is
   `confirmation-required` and carries a confirmToken. Once the user approves in chat:
 resy_book(venue_id, date: "2026-05-01", party_size: 2,
           desired_time: "<preview's time>", confirmToken: "<token>")
 
-  client WITH prompts (Claude Code): name the slot and the user is prompted:
+  client WITH prompts (Claude Code), unless MCP_CONFIRM_ELICITATION=off: name the
+  slot and the user is prompted:
 resy_book(venue_id, date: "2026-05-01", party_size: 2, desired_time: "<preview's time>",
           slot_type: "<preview's slot_type>", terms_token: "<preview's terms_token>")
 ```
@@ -174,7 +176,8 @@ resy_search_venues(date: "2026-04-20", party_size: 2, lat: 37.7749, lng: -122.41
 ```
 resy_list_reservations() → find resy_token for the one to cancel
 resy_cancel(resy_token)
-  → a confirmation prompt, or a preview plus confirmToken to pass back once the user approves
+  → a confirmation prompt (unless MCP_CONFIRM_ELICITATION=off), or a preview plus
+    confirmToken to pass back once the user approves
 ```
 
 **Stalking a hard-to-get table:**

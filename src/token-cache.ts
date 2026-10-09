@@ -38,6 +38,16 @@ function isToken(raw: unknown): raw is BearerTokens {
 }
 
 /**
+ * The fetchproxy binding, versioned. Before fleet-audit#683 a bridge token was
+ * cached under plain `'fetchproxy'` with the far-future NEVER_EXPIRES stamp, and
+ * TokenManager restores a stored `expiresAt` as written — so without a new
+ * binding every existing user's cached token would have kept acting for the old
+ * browser account after upgrading. A different binding makes the file layer
+ * discard those records, and the next call mints afresh with the one-day expiry.
+ */
+const FETCHPROXY_BINDING = 'fetchproxy:ttl';
+
+/**
  * What a cached token is bound to, or `null` when this configuration has
  * nothing worth caching.
  *
@@ -48,9 +58,13 @@ function isToken(raw: unknown): raw is BearerTokens {
  *    mint to skip, so caching would only copy a credential onto disk.
  *  - `RESY_EMAIL`/`RESY_PASSWORD` — a real password login. Worth caching.
  *  - fetchproxy — the token is lifted from a signed-in browser tab. Worth
- *    caching most of all: a cached token lets a cold start proceed with no
- *    browser present at all, which is the difference between working and not on
- *    a host that has none.
+ *    caching most of all: a cached token lets a cold start proceed without
+ *    a browser round trip. Such a token carries a one-day expiry (see
+ *    BRIDGE_TOKEN_TTL_MS in client.ts), so the cache never keeps acting for an
+ *    account the browser has since signed out of for longer than that. The
+ *    trade-off: a host with no browser at all now keeps access for at most a
+ *    day after the last mint, not until Resy refuses the token — such a host
+ *    should use RESY_EMAIL/RESY_PASSWORD or RESY_AUTH_TOKEN instead.
  *
  * The mode is part of the binding, so switching between them discards the old
  * record rather than reusing a token minted a different way.
@@ -62,7 +76,7 @@ function bindingFor(env: NodeJS.ProcessEnv): string | null {
   if (email !== undefined && password !== undefined) {
     return ['password', email.trim().toLowerCase(), password].join('\u0000');
   }
-  if (!parseBoolEnv('RESY_DISABLE_FETCHPROXY', { env })) return 'fetchproxy';
+  if (!parseBoolEnv('RESY_DISABLE_FETCHPROXY', { env })) return FETCHPROXY_BINDING;
   return null;
 }
 

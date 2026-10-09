@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createFileStatePersistence, type BearerTokens } from '@chrischall/mcp-utils/session';
 
 process.env.RESY_EMAIL = 'test@example.com';
 process.env.RESY_PASSWORD = 'pw';
@@ -356,6 +360,93 @@ describe('ResyClient', () => {
     );
   });
 
+  // fleet-audit#682: the rejection always blamed RESY_EMAIL / RESY_PASSWORD,
+  // even when the token came from RESY_AUTH_TOKEN or the browser bridge.
+  describe('the session-rejected error names the credential actually in use', () => {
+    const unauthorized = () =>
+      Promise.resolve({
+        ok: false, status: 401, statusText: 'Unauthorized',
+        headers: new Headers(),
+        text: async () => 'no',
+      });
+
+    it('RESY_AUTH_TOKEN', async () => {
+      process.env.RESY_AUTH_TOKEN = 'direct-tk';
+      vi.stubGlobal('fetch', vi.fn().mockImplementation(unauthorized));
+      const err = await new ResyClient().request('GET', '/x').catch((e: Error) => e);
+      expect((err as Error).message).toMatch(/session rejected.*RESY_AUTH_TOKEN/);
+      expect((err as Error).message).not.toMatch(/RESY_PASSWORD/);
+    });
+
+    it('fetchproxy', async () => {
+      process.env.RESY_EMAIL = '';
+      process.env.RESY_PASSWORD = '';
+      mintTokenViaFetchproxy.mockResolvedValue('fp-tk');
+      vi.stubGlobal('fetch', vi.fn().mockImplementation(unauthorized));
+      const err = await new ResyClient().request('GET', '/x').catch((e: Error) => e);
+      expect((err as Error).message).toMatch(/session rejected.*sign in to resy\.com/i);
+      expect((err as Error).message).not.toMatch(/RESY_PASSWORD/);
+    });
+  });
+
+  // fleet-audit#682: a WAF/HTML interstitial served with a 200 surfaced as a
+  // bare "Unexpected token <" SyntaxError naming no endpoint.
+  it('names the call when a 2xx body is not JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200, statusText: 'OK',
+        headers: new Headers({ 'content-type': 'text/html' }),
+        text: async () => '<html><body>Please wait…</body></html>',
+      }));
+    await expect(new ResyClient().request('GET', '/2/user')).rejects.toThrow(
+      /non-JSON response from GET \/2\/user/
+    );
+  });
+
+  // fleet-audit#682: the 429 retry bypassed TokenManager, so a token that
+  // expired during the backoff failed outright instead of re-minting.
+  it('re-mints when the request after a 429 backoff comes back 401', async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't1' }),
+      })
+      .mockResolvedValueOnce({
+        ok: false, status: 429, statusText: 'Too Many Requests',
+        headers: new Headers(),
+        text: async () => 'slow down',
+      })
+      .mockResolvedValueOnce({
+        ok: false, status: 401, statusText: 'Unauthorized',
+        headers: new Headers(),
+        text: async () => 'unauthorized',
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't2' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ ok: true }),
+      });
+    vi.stubGlobal('fetch', mockFetch);
+    vi.useFakeTimers();
+
+    const promise = new ResyClient().request('GET', '/x');
+    await vi.advanceTimersByTimeAsync(2000);
+    await expect(promise).resolves.toEqual({ ok: true });
+    expect(mockFetch).toHaveBeenCalledTimes(5);
+    expect(mockFetch.mock.calls[4][1].headers['x-resy-auth-token']).toBe('t2');
+  });
+
   it('treats 419 the same as 401', async () => {
     const mockFetch = vi.fn()
       .mockResolvedValueOnce({
@@ -529,6 +620,58 @@ describe('ResyClient', () => {
     expect(data).toEqual({ ok: 1 });
   });
 
+  // fleet-audit#1099: a 500 on a write is ambiguous — Resy may have created
+  // the reservation before failing — so an auth-shaped 500 on POST /3/book must
+  // not be replayed (that re-sends the booking past the duplicate guard). It
+  // surfaces as an UNKNOWN outcome, like a timed-out write.
+  it('does NOT replay a write on an auth-shaped 500; reports its outcome as UNKNOWN', async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't' }),
+      })
+      .mockResolvedValue({
+        ok: false, status: 500, statusText: 'Server Error',
+        headers: new Headers(),
+        text: async () => 'invalid auth token',
+      });
+    vi.stubGlobal('fetch', mockFetch);
+
+    const client = new ResyClient();
+    await expect(
+      client.request('POST', '/3/book', new URLSearchParams({ book_token: 'BK' }))
+    ).rejects.toThrow(/500.*POST \/3\/book.*UNKNOWN.*resy_list_reservations/s);
+    expect(mockFetch).toHaveBeenCalledTimes(2); // login + the one POST — no re-login, no replay
+  });
+
+  it('still replays a write refused with a 419 (the request was not processed)', async () => {
+    const mockFetch = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't' }),
+      })
+      .mockResolvedValueOnce({
+        ok: false, status: 419, statusText: 'Authentication Timeout',
+        headers: new Headers(),
+        text: async () => 'session expired',
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ token: 't2' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true, status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        text: async () => JSON.stringify({ resy_token: 'rr://x' }),
+      });
+    vi.stubGlobal('fetch', mockFetch);
+    const data = await new ResyClient().request('POST', '/3/book', new URLSearchParams({ book_token: 'BK' }));
+    expect(data).toEqual({ resy_token: 'rr://x' });
+  });
+
   it('does NOT treat 500 with non-auth "token" phrase as auth failure', async () => {
     // Regression guard: "book_token expired" contains "token" but is a
     // different failure mode (stale booking token), not an auth failure.
@@ -627,6 +770,86 @@ describe('ResyClient', () => {
         /set RESY_EMAIL.*RESY_AUTH_TOKEN.*ContextMint Bridge/s
       );
       expect(mintTokenViaFetchproxy).not.toHaveBeenCalled();
+    });
+
+    // fleet-audit#683: a bridge-minted token used to be cached forever, so
+    // after signing out of resy.com — or into a different account — the MCP
+    // kept acting on the old account until Resy itself refused the token. It
+    // now lapses after a day and is lifted afresh from the browser.
+    describe('a bridge-minted token is not kept forever', () => {
+      const ok = () =>
+        Promise.resolve({
+          ok: true, status: 200,
+          headers: new Headers({ 'content-type': 'application/json' }),
+          text: async () => JSON.stringify({ ok: true }),
+        });
+
+      it('re-mints through the bridge once a day has passed', async () => {
+        process.env.RESY_EMAIL = '';
+        process.env.RESY_PASSWORD = '';
+        mintTokenViaFetchproxy.mockResolvedValueOnce('fp-old').mockResolvedValueOnce('fp-new');
+        const mockFetch = vi.fn().mockImplementation(ok);
+        vi.stubGlobal('fetch', mockFetch);
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(Date.UTC(2026, 9, 1, 12));
+
+        const client = new ResyClient();
+        await client.request('GET', '/x');
+        vi.setSystemTime(Date.UTC(2026, 9, 1, 23));
+        await client.request('GET', '/x');
+        expect(mintTokenViaFetchproxy).toHaveBeenCalledTimes(1);
+
+        vi.setSystemTime(Date.UTC(2026, 9, 2, 13));
+        await client.request('GET', '/x');
+        expect(mintTokenViaFetchproxy).toHaveBeenCalledTimes(2);
+        expect(mockFetch.mock.calls[2][1].headers['x-resy-auth-token']).toBe('fp-new');
+      });
+
+      it('re-mints through the bridge when the cache holds a forever token from before the fix', async () => {
+        process.env.RESY_EMAIL = '';
+        process.env.RESY_PASSWORD = '';
+        const dir = mkdtempSync(join(tmpdir(), 'resy-legacy-'));
+        try {
+          process.env.RESY_TOKEN_CACHE = 'true';
+          process.env.RESY_TOKEN_FILE = join(dir, 'token.json');
+          // Exactly what an earlier version left on disk: the plain
+          // 'fetchproxy' binding and the NEVER_EXPIRES stamp.
+          createFileStatePersistence<BearerTokens>({
+            filePath: join(dir, 'token.json'),
+            boundTo: 'fetchproxy',
+            validate: (raw) => raw as BearerTokens,
+          }).save({ accessToken: 'fp-stale', refreshToken: 'resy-reauth', expiresAt: Date.UTC(9999, 0, 1) });
+          mintTokenViaFetchproxy.mockResolvedValueOnce('fp-fresh');
+          const mockFetch = vi.fn().mockImplementation(ok);
+          vi.stubGlobal('fetch', mockFetch);
+
+          await new ResyClient().request('GET', '/x');
+          expect(mintTokenViaFetchproxy).toHaveBeenCalledTimes(1);
+          expect(mockFetch.mock.calls[0][1].headers['x-resy-auth-token']).toBe('fp-fresh');
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      });
+
+      it('a password-login token is still kept until Resy refuses it', async () => {
+        const mockFetch = vi.fn()
+          .mockResolvedValueOnce({
+            ok: true, status: 200,
+            headers: new Headers({ 'content-type': 'application/json' }),
+            text: async () => JSON.stringify({ token: 'pw-tk' }),
+          })
+          .mockImplementation(ok);
+        vi.stubGlobal('fetch', mockFetch);
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(Date.UTC(2026, 9, 1, 12));
+
+        const client = new ResyClient();
+        await client.request('GET', '/x');
+        vi.setSystemTime(Date.UTC(2026, 10, 1, 12));
+        await client.request('GET', '/x');
+        const logins = mockFetch.mock.calls.filter((c: unknown[]) => String(c[0]).includes('/3/auth/password'));
+        expect(logins).toHaveLength(1);
+      });
     });
 
     it('refreshToken via fetchproxy on 401 retry', async () => {

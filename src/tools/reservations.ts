@@ -8,6 +8,7 @@ import {
   confirmWrite,
   confirmTokenParam,
   extractTime,
+  normalizeTime,
   requireConfirmationWithFallback,
   toolAnnotations,
 } from '@chrischall/mcp-utils';
@@ -282,16 +283,26 @@ function cancellationFeeNote(c: DetailsCancellation | null): string {
   );
 }
 
-/** A resolved payment method: always an id, plus the last-4 when Resy exposes
- *  it (so the booking preview can show WHICH card would be charged). */
+/** A resolved payment method: always an id, plus the brand and last-4 when
+ *  Resy exposes them (so the booking preview can show WHICH card would be
+ *  charged). */
 interface ResolvedPayment {
   id: number;
+  brand?: string;
   last4?: string;
+}
+
+interface RawPaymentMethod {
+  id?: number;
+  is_default?: boolean;
+  brand?: string;
+  last_four?: string | number;
+  display?: string;
 }
 
 /** Pull the trailing 4 digits Resy surfaces for a card, from whichever field
  *  it uses (`last_four`, or embedded in a `display` label like "Visa •••• 4242"). */
-function paymentLast4(m: { last_four?: string | number; display?: string }): string | undefined {
+function paymentLast4(m: RawPaymentMethod): string | undefined {
   if (m.last_four !== undefined && m.last_four !== null && `${m.last_four}` !== '') {
     return `${m.last_four}`.slice(-4);
   }
@@ -300,26 +311,60 @@ function paymentLast4(m: { last_four?: string | number; display?: string }): str
 }
 
 /**
- * Return the user's default payment method (or first available), including the
- * last-4 when Resy exposes it. Throws a clear user-facing error if none are on
- * file.
+ * Resolve the card a booking would charge from the user's saved methods
+ * (GET /2/user), with its brand and last-4 when Resy exposes them.
+ *
+ * - No `requestedId` → the default method (or the first). Throws a clear
+ *   user-facing error if none are on file.
+ * - A `requestedId` → that method, looked up the same way, so the preview shows
+ *   "visa •••• 4242" rather than a bare id; an id that is not on file is
+ *   refused here rather than sent to Resy (fleet-audit#1101).
  */
-async function resolveDefaultPaymentMethod(client: ResyClient): Promise<ResolvedPayment> {
-  const user = await client.request<{
-    payment_methods?: Array<{
-      id?: number;
-      is_default?: boolean;
-      last_four?: string | number;
-      display?: string;
-    }>;
-  }>('GET', '/2/user');
+async function resolvePaymentMethod(
+  client: ResyClient,
+  requestedId: number | undefined
+): Promise<{ payment: ResolvedPayment; account: string | undefined }> {
+  const user = await client.request<ResyUserSummary>('GET', '/2/user');
   const methods = user.payment_methods ?? [];
-  const def = methods.find((m) => m.is_default) ?? methods[0];
-  if (!def?.id) {
+  let method: RawPaymentMethod | undefined;
+  if (requestedId !== undefined) {
+    method = methods.find((m) => m.id === requestedId);
+    if (!method) {
+      throw new Error(
+        `unknown payment_method_id ${requestedId} — it is not one of your saved cards; see resy_list_payment_methods.`
+      );
+    }
+  } else {
+    method = methods.find((m) => m.is_default) ?? methods[0];
+  }
+  if (!method?.id) {
     throw new Error('No payment method on file. Add one at resy.com/account before booking.');
   }
-  const last4 = paymentLast4(def);
-  return { id: def.id, ...(last4 ? { last4 } : {}) };
+  const last4 = paymentLast4(method);
+  return {
+    payment: {
+      id: method.id,
+      ...(method.brand ? { brand: method.brand } : {}),
+      ...(last4 ? { last4 } : {}),
+    },
+    account: accountLabel(user),
+  };
+}
+
+/** The slice of GET /2/user the write previews read. */
+interface ResyUserSummary {
+  em_address?: string;
+  payment_methods?: RawPaymentMethod[];
+}
+
+/**
+ * Which Resy account a write would act as — its email — for the booking and
+ * cancel previews. The token may have been lifted from a browser that has since
+ * switched accounts, so the user should see whose reservation this is before
+ * approving (fleet-audit#683).
+ */
+function accountLabel(user: ResyUserSummary): string | undefined {
+  return typeof user.em_address === 'string' && user.em_address !== '' ? user.em_address : undefined;
 }
 
 /**
@@ -415,7 +460,7 @@ export function registerReservationTools(
     {
       description:
         'Cancel a Resy reservation by its resy_token (the rr://... identifier returned from resy_book or resy_list_reservations). ' +
-        'The confirmation preview shows the venue, date, time, party size, and any cancellation fee. ' +
+        'The confirmation preview shows the Resy account, venue, date, time, party size, and any cancellation fee. ' +
         CONFIRM_FLOW,
       annotations: {
         ...toolAnnotations({ title: 'Cancel a Resy reservation', readOnly: false }),
@@ -431,6 +476,11 @@ export function registerReservationTools(
       // preview the user confirms, and re-reading it on the token phase means a
       // change in between (a fee appearing) is refused as DRAFT_CHANGED.
       const info = await findReservationByToken(client, resy_token);
+      // The account label is informational, so a failed /2/user read leaves it
+      // out rather than failing the cancel (the confirm phase included).
+      const account = await client
+        .request<ResyUserSummary>('GET', '/2/user')
+        .then(accountLabel, () => undefined);
       const preview = {
         preview: true,
         cancelled: false,
@@ -442,6 +492,7 @@ export function registerReservationTools(
             }`
           : 'Nothing has been cancelled yet. This resy_token was not found in your reservation list; confirming attempts the cancellation anyway.',
         resy_token,
+        ...(account ? { account } : {}),
         ...(info
           ? {
               venue_name: info.venue_name,
@@ -485,24 +536,56 @@ export function registerReservationTools(
       if (gate) return gate;
 
       const body = new URLSearchParams({ resy_token });
-      const data = await client.request<Record<string, unknown>>(
+      const raw = await client.request<Record<string, unknown> | null>(
         'POST',
         '/3/cancel',
         body
       );
-      // Resy's cancel response shape isn't documented. Treat obvious failure
-      // signals as cancelled=false; otherwise assume HTTP-OK means success.
-      // Callers always get `raw` for the truth.
+      // Resy's cancel response shape isn't documented, and an empty 2xx body
+      // arrives as null. Obvious failure / success signals are taken at their
+      // word; callers always get `raw` for the truth.
+      const data = raw ?? {};
       const status = typeof data.status === 'string' ? data.status.toLowerCase() : undefined;
       const hasErrorField = 'error' in data || 'error_message' in data;
-      const explicitSuccess =
-        (status !== undefined && /cancel/.test(status)) || data.ok === true;
       const explicitFailure =
         data.ok === false ||
         (status !== undefined && /fail|error|denied/.test(status)) ||
         hasErrorField;
-      const cancelled = explicitSuccess || !explicitFailure;
-      return minifiedResult({ cancelled, raw: data });
+      const explicitSuccess =
+        !explicitFailure && ((status !== undefined && /cancel/.test(status)) || data.ok === true);
+      if (explicitFailure || explicitSuccess) {
+        return minifiedResult({ cancelled: explicitSuccess, raw });
+      }
+      // Anything else is NOT taken as success (fleet-audit#681): an unflagged
+      // soft failure ("past cancellation window") would tell the user the
+      // table is released when it is not. Settle it by re-reading the list —
+      // cancelled only if the reservation that was listed is now gone.
+      const unknown = (why: string) =>
+        minifiedResult({
+          cancelled: null,
+          note:
+            `Resy's response did not say whether the cancellation went through, and ${why}. ` +
+            'Check resy_list_reservations before retrying.',
+          raw,
+        });
+      if (!info) return unknown('this resy_token was not in your reservation list beforehand');
+      let stillListed: boolean;
+      try {
+        stillListed = (await findReservationByToken(client, resy_token)) !== undefined;
+      } catch {
+        return unknown('re-reading your reservations to check failed');
+      }
+      return minifiedResult({
+        cancelled: !stillListed,
+        ...(stillListed
+          ? {
+              note:
+                "Resy's response did not confirm the cancellation and the reservation is still listed — " +
+                'it has most likely NOT been cancelled (see raw).',
+            }
+          : {}),
+        raw,
+      });
     }
   );
 
@@ -511,7 +594,7 @@ export function registerReservationTools(
     {
       description:
         "Book a reservation. Composite tool: internally runs find-slots → get booking details → book. " +
-        'It books ONLY the exact slot a preview showed. The first call returns a preview (venue, date, party size, ' +
+        'It books ONLY the exact slot a preview showed. The first call returns a preview (the Resy account, venue, date, party size, ' +
         "the exact slot time that would be booked, its slot_type, the payment card last-4, and the slot's " +
         'cancellation_policy / payment_terms — any no-show fee or deposit) and books nothing. ' +
         'Pass desired_time (HH:MM, 24-hour) to target a specific slot. If your exact desired_time is not ' +
@@ -529,7 +612,8 @@ export function registerReservationTools(
         ' Before booking, it checks your existing reservations and refuses if you already hold one at ' +
         'this venue on this date (e.g. an earlier call that timed out but went through); pass ' +
         'allow_duplicate:true to book another anyway. ' +
-        "Uses the user's default payment method unless payment_method_id is supplied.",
+        "Uses the user's default payment method unless payment_method_id is supplied (it must be one of the " +
+        'saved cards from resy_list_payment_methods; the preview names the card by brand and last-4).',
       annotations: {
         ...toolAnnotations({ title: 'Book a Resy reservation', readOnly: false }),
         destructiveHint: true,
@@ -601,6 +685,11 @@ export function registerReservationTools(
       },
       ctx
     ) => {
+      // Slot times are always zero-padded HH:MM, but the schema accepts a
+      // single-digit hour ('9:30'), which then never matched a slot exactly
+      // (fleet-audit#680). Compare — and echo — the padded form.
+      desired_time = desired_time === undefined ? undefined : (normalizeTime(desired_time) ?? desired_time);
+
       // 1. find fresh slots (via shared helper — read-only)
       const slots = await findSlotsAtVenue(client, { venue_id, date, party_size, lat, lng });
       if (slots.length === 0) {
@@ -646,13 +735,19 @@ export function registerReservationTools(
         slot_type_fallback: chosen.type,
       });
 
-      // 4. resolve payment method (read-only when defaulting)
-      const payment: ResolvedPayment =
-        payment_method_id !== undefined
-          ? { id: payment_method_id }
-          : await resolveDefaultPaymentMethod(client);
+      // 4. resolve the payment method against the saved cards (read-only)
+      const { payment, account } = await resolvePaymentMethod(client, payment_method_id);
 
-      // 5. book only when the call names the exact slot a preview showed.
+      // 5. duplicate guard (read-only): what the user already holds here that
+      //    day — most likely an earlier resy_book whose response was lost to a
+      //    timeout but which Resy completed (fleet-audit#227). Read BEFORE the
+      //    gate (fleet-audit#1100): a duplicate is refused before anyone is
+      //    asked to approve (so no approval or confirmToken is wasted on a
+      //    booking that would then be refused), and with allow_duplicate the
+      //    approval shows what it is doubling up on.
+      const existing = await findReservationsAtVenueOnDate(client, venue_id, date);
+
+      // 6. book only when the call names the exact slot a preview showed.
       //    Everything above is a read; the booking POST below is the only
       //    mutation.
       //
@@ -685,6 +780,7 @@ export function registerReservationTools(
         preview: true,
         action: 'book',
         booked: false,
+        ...(account ? { account } : {}),
         venue_name: details.venue_name,
         venue_url: details.venue_url,
         date,
@@ -696,11 +792,12 @@ export function registerReservationTools(
         party_size,
         slot_type: details.slot_type,
         terms_token: termsToken,
-        payment_method: { id: payment.id, ...(payment.last4 ? { last4: payment.last4 } : {}) },
+        payment_method: payment,
         // The terms the card is committed to, straight from /3/details —
         // null means Resy stated none, not that there are none.
         cancellation_policy: details.cancellation,
         payment_terms: details.payment,
+        ...(existing.length > 0 ? { existing_reservations: existing } : {}),
       };
       const payload = {
         venue_id,
@@ -717,6 +814,7 @@ export function registerReservationTools(
         action: 'resy.book',
         message: 'Review and confirm this booking:',
         details: {
+          ...(account ? { account } : {}),
           venue_name: details.venue_name,
           date,
           time: chosen.time,
@@ -725,6 +823,7 @@ export function registerReservationTools(
           payment_method: slotPreview.payment_method,
           cancellation_policy: details.cancellation,
           payment_terms: details.payment,
+          ...(existing.length > 0 ? { existing_reservations: existing } : {}),
         },
         tool: 'resy_book',
         confirmToken,
@@ -762,6 +861,29 @@ export function registerReservationTools(
         }),
       });
       const tokenRail = confirmsByToken(ctx, gateOptions);
+      if (existing.length > 0 && allow_duplicate !== true) {
+        return minifiedResult({
+          preview: true,
+          action: 'book',
+          booked: false,
+          note:
+            `NOT BOOKED — you already have ${existing.length === 1 ? 'a reservation' : `${existing.length} reservations`} ` +
+            `at ${details.venue_name} on ${date} (see existing_reservations). If an earlier resy_book call ` +
+            `failed or timed out, it most likely went through. To book another table anyway, call again with ` +
+            `allow_duplicate: true, desired_time: "${chosen.time}"` +
+            (tokenRail
+              ? ''
+              : `, slot_type: "${details.slot_type}" and terms_token: "${termsToken}"`) +
+            ` (without a confirmToken); the second table is then confirmed with you, showing this one.`,
+          venue_name: details.venue_name,
+          date,
+          time: chosen.time,
+          party_size,
+          slot_type: details.slot_type,
+          terms_token: termsToken,
+          existing_reservations: existing,
+        });
+      }
       const slotPinned = tokenRail
         ? confirmToken === undefined || exactTime
         : exactTime &&
@@ -808,36 +930,6 @@ export function registerReservationTools(
 
       const gate = await requireConfirmationWithFallback(ctx, gateOptions);
       if (gate) return gate;
-
-      // 6. duplicate guard (read-only): refuse if the user already holds a
-      //    reservation here that day — most likely an earlier resy_book whose
-      //    response was lost to a timeout but which Resy completed.
-      if (allow_duplicate !== true) {
-        const existing = await findReservationsAtVenueOnDate(client, venue_id, date);
-        if (existing.length > 0) {
-          return minifiedResult({
-            preview: true,
-            action: 'book',
-            booked: false,
-            note:
-              `NOT BOOKED — you already have ${existing.length === 1 ? 'a reservation' : `${existing.length} reservations`} ` +
-              `at ${details.venue_name} on ${date} (see existing_reservations). If an earlier resy_book call ` +
-              `failed or timed out, it most likely went through. To book another table anyway, call again with ` +
-              `allow_duplicate: true, desired_time: "${chosen.time}"` +
-              (tokenRail
-                ? ''
-                : `, slot_type: "${details.slot_type}" and terms_token: "${termsToken}"`) +
-              ` (without a confirmToken — booking a second table is confirmed afresh).`,
-            venue_name: details.venue_name,
-            date,
-            time: chosen.time,
-            party_size,
-            slot_type: details.slot_type,
-            terms_token: termsToken,
-            existing_reservations: existing,
-          });
-        }
-      }
 
       // 7. book (the only mutating call)
       const bookBody = new URLSearchParams({
