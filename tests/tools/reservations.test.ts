@@ -533,7 +533,7 @@ describe('reservation tools (list/cancel)', () => {
       details?: Record<string, unknown> | ((path: string) => Record<string, unknown>);
       paymentMethods?: Array<{ id: number; is_default?: boolean; last_four?: string; brand?: string }>;
       bookResponse?: Record<string, unknown>;
-      /** GET /3/user/reservations — the duplicate check phase 2 runs before POST /3/book. */
+      /** GET /3/user/reservations — the duplicate check every resy_book call runs before its gate. */
       existingReservations?: { reservations: unknown[]; venues?: Record<string, { name: string }> };
     }) {
       mockRequest.mockImplementation(async (method: string, path: string) => {
@@ -567,10 +567,12 @@ describe('reservation tools (list/cancel)', () => {
 
       const { result } = await confirmed('resy_book', BOOK_19);
 
-      // phase 1: find, details, user (a preview — nothing else)
-      expect(mockRequest.mock.calls.slice(0, 3).map((c) => c[1].split('?')[0])).toEqual(['/4/find', '/3/details', '/2/user']);
-      // phase 2: the same reads fresh, then the duplicate check and the booking
-      const phase2 = mockRequest.mock.calls.slice(3);
+      // phase 1: find, details, user, then the duplicate check (a preview — nothing else)
+      expect(mockRequest.mock.calls.slice(0, 4).map((c) => c[1].split('?')[0])).toEqual(
+        ['/4/find', '/3/details', '/2/user', '/3/user/reservations']
+      );
+      // phase 2: the same reads fresh, then the booking
+      const phase2 = mockRequest.mock.calls.slice(4);
       expect(phase2).toHaveLength(5);
 
       expect(phase2[0][0]).toBe('GET');
@@ -827,6 +829,7 @@ describe('reservation tools (list/cancel)', () => {
         if (path.startsWith('/4/find?')) return findResponse([{ token: 'cfg-dr', time: '17:00', type: 'Dining Room' }]);
         if (path.startsWith('/3/details?')) return detailsResponse('Dining Room', cancellation ? { cancellation } : {});
         if (path === '/2/user') return { payment_methods: [{ id: 55, is_default: true }] };
+        if (path === '/3/user/reservations') return { reservations: [], venues: {} };
         throw new Error(`unexpected ${method} ${path}`);
       });
       const base = { venue_id: 101, date: '2026-05-01', party_size: 2, desired_time: '17:00' };
@@ -1057,10 +1060,12 @@ describe('reservation tools (list/cancel)', () => {
 
       const parsed = parse(await harness.callTool('resy_book', BOOK_19));
 
-      // Reads to build the preview are fine; the mutating POST /3/book must NOT
-      // fire, and the duplicate check belongs to phase 2.
+      // Reads to build the preview are fine — the duplicate check among them,
+      // so the approval is an informed one (fleet-audit#1100); the mutating
+      // POST /3/book must NOT fire.
       expect(posts('/3/book')).toHaveLength(0);
-      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/user/reservations')).toBe(false);
+      expect(mockRequest.mock.calls.some((c) => c[1] === '/3/user/reservations')).toBe(true);
+      expect(parsed.preview).not.toHaveProperty('existing_reservations');
 
       expect(parsed.status).toBe('confirmation-required');
       expect(parsed.action).toBe('resy.book');
@@ -1207,8 +1212,10 @@ describe('reservation tools (list/cancel)', () => {
     // fleet-audit#227: a POST /3/book that outlives the MCP client's timeout
     // looks like a failure to the model while the booking completes on Resy's
     // side; the natural retry then books twice. The booking call therefore
-    // checks for an existing reservation at the same venue + date first.
-    it('refuses when a reservation already exists at the same venue and date', async () => {
+    // checks for an existing reservation at the same venue + date first —
+    // BEFORE asking for approval (fleet-audit#1100), so the user is never asked
+    // to approve a booking that is then refused, and no confirmToken is spent.
+    it('refuses when a reservation already exists at the same venue and date — before any approval', async () => {
       routeBook({
         slots: [{ token: 'cfg-7pm', time: '19:00' }],
         existingReservations: {
@@ -1218,19 +1225,45 @@ describe('reservation tools (list/cancel)', () => {
           venues: { '101': { name: 'Carbone' } },
         },
       });
-      const { result } = await confirmed('resy_book', BOOK_19);
+      const parsed = parse(await harness.callTool('resy_book', BOOK_19));
       expect(posts('/3/book')).toHaveLength(0);
-      const parsed = parse(result);
+      expect(parsed.status).not.toBe('confirmation-required');
+      expect(parsed).not.toHaveProperty('confirmToken');
       expect(parsed.booked).toBe(false);
       expect(parsed.existing_reservations).toHaveLength(1);
       expect(parsed.existing_reservations[0].resy_token).toBe('rr://earlier');
       expect(parsed.note).toMatch(/allow_duplicate: true/);
-      // The re-run names the exact slot; on the token rail it is approved afresh.
+      // The re-run names the exact slot, and is then approved with the
+      // existing reservation in view.
       expect(parsed.slot_type).toBe('Dining Room');
       expect(parsed.terms_token).toBe(DR_CONFIRM.terms_token);
       expect(parsed.note).toContain('desired_time: "19:00"');
-      expect(parsed.note).toMatch(/without a confirmToken/i);
       expect(parsed.note).not.toMatch(/confirm: true/);
+    });
+
+    it('elicitation rail: the duplicate refusal names the full pin, and nobody is prompted', async () => {
+      routeBook({
+        slots: [{ token: 'cfg-7pm', time: '19:00' }],
+        existingReservations: {
+          reservations: [{ resy_token: 'rr://earlier', venue: { id: 101 }, day: '2026-05-01' }],
+        },
+      });
+      let prompted = 0;
+      const h = await createTestHarness((server) => registerReservationTools(server, mockClient), {
+        elicitation: async () => {
+          prompted++;
+          return { action: 'accept', content: { confirmed: true } };
+        },
+      });
+      try {
+        const parsed = parse(await h.callTool('resy_book', BOOK_19));
+        expect(prompted).toBe(0);
+        expect(posts('/3/book')).toHaveLength(0);
+        expect(parsed.note).toContain(`terms_token: "${DR_CONFIRM.terms_token}"`);
+        expect(parsed.note).toContain('slot_type: "Dining Room"');
+      } finally {
+        await h.close();
+      }
     });
 
     it('ignores reservations at other venues or on other dates', async () => {
@@ -1254,7 +1287,10 @@ describe('reservation tools (list/cancel)', () => {
           reservations: [{ resy_token: 'rr://earlier', venue: { id: 101 }, day: '2026-05-01' }],
         },
       });
-      await confirmed('resy_book', { ...BOOK_19, allow_duplicate: true });
+      const { first } = await confirmed('resy_book', { ...BOOK_19, allow_duplicate: true });
+      // The approval shows what it would be doubling up on.
+      expect(first.preview.existing_reservations).toHaveLength(1);
+      expect(first.preview.existing_reservations[0].resy_token).toBe('rr://earlier');
       expect(posts('/3/book')).toHaveLength(1);
     });
 

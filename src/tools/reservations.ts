@@ -713,7 +713,16 @@ export function registerReservationTools(
       // 4. resolve the payment method against the saved cards (read-only)
       const payment = await resolvePaymentMethod(client, payment_method_id);
 
-      // 5. book only when the call names the exact slot a preview showed.
+      // 5. duplicate guard (read-only): what the user already holds here that
+      //    day — most likely an earlier resy_book whose response was lost to a
+      //    timeout but which Resy completed (fleet-audit#227). Read BEFORE the
+      //    gate (fleet-audit#1100): a duplicate is refused before anyone is
+      //    asked to approve (so no approval or confirmToken is wasted on a
+      //    booking that would then be refused), and with allow_duplicate the
+      //    approval shows what it is doubling up on.
+      const existing = await findReservationsAtVenueOnDate(client, venue_id, date);
+
+      // 6. book only when the call names the exact slot a preview showed.
       //    Everything above is a read; the booking POST below is the only
       //    mutation.
       //
@@ -762,6 +771,7 @@ export function registerReservationTools(
         // null means Resy stated none, not that there are none.
         cancellation_policy: details.cancellation,
         payment_terms: details.payment,
+        ...(existing.length > 0 ? { existing_reservations: existing } : {}),
       };
       const payload = {
         venue_id,
@@ -786,6 +796,7 @@ export function registerReservationTools(
           payment_method: slotPreview.payment_method,
           cancellation_policy: details.cancellation,
           payment_terms: details.payment,
+          ...(existing.length > 0 ? { existing_reservations: existing } : {}),
         },
         tool: 'resy_book',
         confirmToken,
@@ -823,6 +834,29 @@ export function registerReservationTools(
         }),
       });
       const tokenRail = confirmsByToken(ctx, gateOptions);
+      if (existing.length > 0 && allow_duplicate !== true) {
+        return minifiedResult({
+          preview: true,
+          action: 'book',
+          booked: false,
+          note:
+            `NOT BOOKED — you already have ${existing.length === 1 ? 'a reservation' : `${existing.length} reservations`} ` +
+            `at ${details.venue_name} on ${date} (see existing_reservations). If an earlier resy_book call ` +
+            `failed or timed out, it most likely went through. To book another table anyway, call again with ` +
+            `allow_duplicate: true, desired_time: "${chosen.time}"` +
+            (tokenRail
+              ? ''
+              : `, slot_type: "${details.slot_type}" and terms_token: "${termsToken}"`) +
+            ` (without a confirmToken); the second table is then confirmed with you, showing this one.`,
+          venue_name: details.venue_name,
+          date,
+          time: chosen.time,
+          party_size,
+          slot_type: details.slot_type,
+          terms_token: termsToken,
+          existing_reservations: existing,
+        });
+      }
       const slotPinned = tokenRail
         ? confirmToken === undefined || exactTime
         : exactTime &&
@@ -869,36 +903,6 @@ export function registerReservationTools(
 
       const gate = await requireConfirmationWithFallback(ctx, gateOptions);
       if (gate) return gate;
-
-      // 6. duplicate guard (read-only): refuse if the user already holds a
-      //    reservation here that day — most likely an earlier resy_book whose
-      //    response was lost to a timeout but which Resy completed.
-      if (allow_duplicate !== true) {
-        const existing = await findReservationsAtVenueOnDate(client, venue_id, date);
-        if (existing.length > 0) {
-          return minifiedResult({
-            preview: true,
-            action: 'book',
-            booked: false,
-            note:
-              `NOT BOOKED — you already have ${existing.length === 1 ? 'a reservation' : `${existing.length} reservations`} ` +
-              `at ${details.venue_name} on ${date} (see existing_reservations). If an earlier resy_book call ` +
-              `failed or timed out, it most likely went through. To book another table anyway, call again with ` +
-              `allow_duplicate: true, desired_time: "${chosen.time}"` +
-              (tokenRail
-                ? ''
-                : `, slot_type: "${details.slot_type}" and terms_token: "${termsToken}"`) +
-              ` (without a confirmToken — booking a second table is confirmed afresh).`,
-            venue_name: details.venue_name,
-            date,
-            time: chosen.time,
-            party_size,
-            slot_type: details.slot_type,
-            terms_token: termsToken,
-            existing_reservations: existing,
-          });
-        }
-      }
 
       // 7. book (the only mutating call)
       const bookBody = new URLSearchParams({
