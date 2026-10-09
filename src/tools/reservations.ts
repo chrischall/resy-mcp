@@ -486,24 +486,56 @@ export function registerReservationTools(
       if (gate) return gate;
 
       const body = new URLSearchParams({ resy_token });
-      const data = await client.request<Record<string, unknown>>(
+      const raw = await client.request<Record<string, unknown> | null>(
         'POST',
         '/3/cancel',
         body
       );
-      // Resy's cancel response shape isn't documented. Treat obvious failure
-      // signals as cancelled=false; otherwise assume HTTP-OK means success.
-      // Callers always get `raw` for the truth.
+      // Resy's cancel response shape isn't documented, and an empty 2xx body
+      // arrives as null. Obvious failure / success signals are taken at their
+      // word; callers always get `raw` for the truth.
+      const data = raw ?? {};
       const status = typeof data.status === 'string' ? data.status.toLowerCase() : undefined;
       const hasErrorField = 'error' in data || 'error_message' in data;
-      const explicitSuccess =
-        (status !== undefined && /cancel/.test(status)) || data.ok === true;
       const explicitFailure =
         data.ok === false ||
         (status !== undefined && /fail|error|denied/.test(status)) ||
         hasErrorField;
-      const cancelled = explicitSuccess || !explicitFailure;
-      return minifiedResult({ cancelled, raw: data });
+      const explicitSuccess =
+        !explicitFailure && ((status !== undefined && /cancel/.test(status)) || data.ok === true);
+      if (explicitFailure || explicitSuccess) {
+        return minifiedResult({ cancelled: explicitSuccess, raw });
+      }
+      // Anything else is NOT taken as success (fleet-audit#681): an unflagged
+      // soft failure ("past cancellation window") would tell the user the
+      // table is released when it is not. Settle it by re-reading the list —
+      // cancelled only if the reservation that was listed is now gone.
+      const unknown = (why: string) =>
+        minifiedResult({
+          cancelled: null,
+          note:
+            `Resy's response did not say whether the cancellation went through, and ${why}. ` +
+            'Check resy_list_reservations before retrying.',
+          raw,
+        });
+      if (!info) return unknown('this resy_token was not in your reservation list beforehand');
+      let stillListed: boolean;
+      try {
+        stillListed = (await findReservationByToken(client, resy_token)) !== undefined;
+      } catch {
+        return unknown('re-reading your reservations to check failed');
+      }
+      return minifiedResult({
+        cancelled: !stillListed,
+        ...(stillListed
+          ? {
+              note:
+                "Resy's response did not confirm the cancellation and the reservation is still listed — " +
+                'it has most likely NOT been cancelled (see raw).',
+            }
+          : {}),
+        raw,
+      });
     }
   );
 

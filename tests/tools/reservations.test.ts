@@ -285,7 +285,7 @@ describe('reservation tools (list/cancel)', () => {
     /** Route GET /3/user/reservations and POST /3/cancel by path. */
     function routeCancel(
       listing: unknown | (() => unknown),
-      cancelResponse: Record<string, unknown> = { ok: true, status: 'cancelled', refund: 0 }
+      cancelResponse: Record<string, unknown> | null = { ok: true, status: 'cancelled', refund: 0 }
     ) {
       mockRequest.mockImplementation(async (method: string, path: string) => {
         if (method === 'GET' && path === '/3/user/reservations') {
@@ -323,6 +323,53 @@ describe('reservation tools (list/cancel)', () => {
       const { result } = await confirmed('resy_cancel', { resy_token: 'rr://abc' });
       const text = (result.content[0] as { text: string }).text;
       expect(text).toContain('"cancelled":false');
+    });
+
+    // fleet-audit#681: a 2xx body with no recognised success/failure marker
+    // used to be reported cancelled:true, and an empty body (null) crashed on
+    // `'error' in data`. An unclear answer is now settled by re-reading the
+    // reservation list: cancelled only when the reservation is gone.
+    describe('an unclear cancel response is verified against the reservation list', () => {
+      /** LISTING until /3/cancel has been POSTed, then `after`. */
+      const listingThen = (after: () => unknown) => () =>
+        posts('/3/cancel').length === 0 ? LISTING : after();
+
+      it('an empty body with the reservation gone afterwards is cancelled:true (no crash)', async () => {
+        routeCancel(listingThen(() => ({ reservations: [], venues: {} })), null);
+        const { result } = await confirmed('resy_cancel', { resy_token: 'rr://abc' });
+        expect(result.isError).toBeFalsy();
+        const parsed = parse(result);
+        expect(parsed.cancelled).toBe(true);
+        expect(parsed.raw).toBeNull();
+      });
+
+      it('a soft failure Resy did not flag, with the reservation still listed, is cancelled:false', async () => {
+        routeCancel(listingThen(() => LISTING), { message: 'past cancellation window' });
+        const { result } = await confirmed('resy_cancel', { resy_token: 'rr://abc' });
+        const parsed = parse(result);
+        expect(parsed.cancelled).toBe(false);
+        expect(parsed.note).toMatch(/still listed/i);
+      });
+
+      it('reports the outcome as unknown when the re-read itself fails', async () => {
+        routeCancel(
+          listingThen(() => {
+            throw new Error('Resy API error: 503');
+          }),
+          {}
+        );
+        const { result } = await confirmed('resy_cancel', { resy_token: 'rr://abc' });
+        const parsed = parse(result);
+        expect(parsed.cancelled).toBeNull();
+        expect(parsed.note).toMatch(/resy_list_reservations/);
+      });
+
+      it('reports the outcome as unknown when the token was never in the list', async () => {
+        routeCancel({ reservations: [], venues: {} }, {});
+        const { result } = await confirmed('resy_cancel', { resy_token: 'rr://ghost' });
+        const parsed = parse(result);
+        expect(parsed.cancelled).toBeNull();
+      });
     });
 
     it('phase 1 returns confirmation-required with the preview and makes NO /3/cancel call', async () => {
