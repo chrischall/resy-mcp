@@ -266,6 +266,12 @@ describe('reservation tools (list/cancel)', () => {
   const posts = (path: string) => mockRequest.mock.calls.filter((c) => c[0] === 'POST' && c[1] === path);
 
   describe('resy_cancel', () => {
+    it('documents the result contract (boolean cancelled + outcome) in its description', async () => {
+      const tool = (await harness.listTools()).find((t: { name: string }) => t.name === 'resy_cancel');
+      expect(tool?.description).toMatch(/`cancelled` \(boolean/);
+      expect(tool?.description).toMatch(/outcome.*"unknown"/);
+    });
+
     const LISTING = {
       reservations: [
         {
@@ -309,6 +315,7 @@ describe('reservation tools (list/cancel)', () => {
       expect(result.isError).toBeFalsy();
       const text = (result.content[0] as { text: string }).text;
       expect(text).toContain('"cancelled":true');
+      expect(parse(result).outcome).toBe('cancelled');
     });
 
     it('reports cancelled=false when Resy returns an explicit failure body', async () => {
@@ -316,6 +323,7 @@ describe('reservation tools (list/cancel)', () => {
       const { result } = await confirmed('resy_cancel', { resy_token: 'rr://abc' });
       const text = (result.content[0] as { text: string }).text;
       expect(text).toContain('"cancelled":false');
+      expect(parse(result).outcome).toBe('not_cancelled');
       expect(text).toContain('"error":"past deadline"');
     });
 
@@ -341,6 +349,7 @@ describe('reservation tools (list/cancel)', () => {
         expect(result.isError).toBeFalsy();
         const parsed = parse(result);
         expect(parsed.cancelled).toBe(true);
+        expect(parsed.outcome).toBe('cancelled');
         expect(parsed.raw).toBeNull();
       });
 
@@ -349,6 +358,7 @@ describe('reservation tools (list/cancel)', () => {
         const { result } = await confirmed('resy_cancel', { resy_token: 'rr://abc' });
         const parsed = parse(result);
         expect(parsed.cancelled).toBe(false);
+        expect(parsed.outcome).toBe('not_cancelled');
         expect(parsed.note).toMatch(/still listed/i);
       });
 
@@ -361,7 +371,10 @@ describe('reservation tools (list/cancel)', () => {
         );
         const { result } = await confirmed('resy_cancel', { resy_token: 'rr://abc' });
         const parsed = parse(result);
-        expect(parsed.cancelled).toBeNull();
+        // `cancelled` stays a strict boolean (the pre-1.3.3 contract); the
+        // unknown case is carried by `outcome` + `note`, never by null.
+        expect(parsed.cancelled).toBe(false);
+        expect(parsed.outcome).toBe('unknown');
         expect(parsed.note).toMatch(/resy_list_reservations/);
       });
 
@@ -369,7 +382,8 @@ describe('reservation tools (list/cancel)', () => {
         routeCancel({ reservations: [], venues: {} }, {});
         const { result } = await confirmed('resy_cancel', { resy_token: 'rr://ghost' });
         const parsed = parse(result);
-        expect(parsed.cancelled).toBeNull();
+        expect(parsed.cancelled).toBe(false);
+        expect(parsed.outcome).toBe('unknown');
       });
     });
 
