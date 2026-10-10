@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.4](https://github.com/chrischall/resy-mcp/compare/v1.3.3...v1.3.4) (2026-10-10)
+
+
+### Documentation
+
+* make AGENTS.md a symlink to CLAUDE.md ([#281](https://github.com/chrischall/resy-mcp/issues/281)) ([016f6bb](https://github.com/chrischall/resy-mcp/commit/016f6bbdde00c516ddd159f190b2e5b6ab801403))
+
 ## [1.3.3](https://github.com/chrischall/resy-mcp/compare/v1.3.2...v1.3.3) (2026-10-09)
 
 
