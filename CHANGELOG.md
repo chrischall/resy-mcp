@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.3.4](https://github.com/chrischall/resy-mcp/compare/v1.3.3...v1.3.4) (2026-10-16)
+
+
+### Bug Fixes
+
+* **deps:** bump @chrischall/mcp-utils to 3.0.3 and @fetchproxy/server to 3.6.2 ([#285](https://github.com/chrischall/resy-mcp/issues/285)) ([36a0b8f](https://github.com/chrischall/resy-mcp/commit/36a0b8fae61deea743166cd15ce140e52326d660))
+* **deps:** bump the production-dependencies group with 2 updates ([#284](https://github.com/chrischall/resy-mcp/issues/284)) ([9dd55d6](https://github.com/chrischall/resy-mcp/commit/9dd55d6740c8e05d249a0b5760af9c42a9b0e2c7))
+* **plugin:** launch the published package so marketplace installs start ([#286](https://github.com/chrischall/resy-mcp/issues/286)) ([2d8af33](https://github.com/chrischall/resy-mcp/commit/2d8af331aa4b42d3035aef8de91ae3088280b367))
+
+
+### Documentation
+
+* describe the npx launch of the published package in CLAUDE.md ([#288](https://github.com/chrischall/resy-mcp/issues/288)) ([4532b40](https://github.com/chrischall/resy-mcp/commit/4532b406b7839557d32559d86eb7c8da7ae1313c))
+* make AGENTS.md a symlink to CLAUDE.md ([#281](https://github.com/chrischall/resy-mcp/issues/281)) ([016f6bb](https://github.com/chrischall/resy-mcp/commit/016f6bbdde00c516ddd159f190b2e5b6ab801403))
+
 ## [1.3.3](https://github.com/chrischall/resy-mcp/compare/v1.3.2...v1.3.3) (2026-10-09)
 
 
