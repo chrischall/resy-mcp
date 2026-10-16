@@ -5,12 +5,12 @@ description: Manage Resy restaurant reservations via MCP — search venues, book
 
 # resy-mcp
 
-MCP server for Resy — natural-language restaurant reservation management. Uses Resy's private web-app API with email + password auth.
+MCP server for Resy — natural-language restaurant reservation management. Uses Resy's private web-app API. By default it signs in through your own signed-in resy.com tab via the ContextMint Bridge browser extension, so no credentials go in env; a token or email/password are optional alternatives.
 
 - **npm:** [npmjs.com/package/resy-mcp](https://www.npmjs.com/package/resy-mcp)
 - **Source:** [github.com/chrischall/resy-mcp](https://github.com/chrischall/resy-mcp)
 
-> ⚠️ Resy does not publish an official API. This server uses the same private endpoints the Resy web app calls, with the public web-app `api_key` and user-level auth via email + password. Use at your own discretion.
+> ⚠️ Resy does not publish an official API. This server uses the same private endpoints the Resy web app calls, with the public web-app `api_key` and the signed-in user's auth token. Use at your own discretion.
 
 ## Setup
 
@@ -23,15 +23,13 @@ Add to `.mcp.json` in your project or `~/.claude/mcp.json`:
   "mcpServers": {
     "resy": {
       "command": "npx",
-      "args": ["-y", "resy-mcp"],
-      "env": {
-        "RESY_EMAIL": "you@example.com",
-        "RESY_PASSWORD": "yourpassword"
-      }
+      "args": ["-y", "resy-mcp"]
     }
   }
 }
 ```
+
+Then install the ContextMint Bridge extension from its [releases page](https://github.com/nullnet-app/contextmint-bridge/releases) (Chrome: unzip and load unpacked at `chrome://extensions`), sign in to resy.com in that browser, and approve the one-time pair code the first tool call prints. No env vars are needed.
 
 ### Option B — from source
 
@@ -41,29 +39,23 @@ cd resy-mcp
 npm install && npm run build
 ```
 
-Then add to `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "resy": {
-      "command": "node",
-      "args": ["/path/to/resy-mcp/dist/bundle.js"],
-      "env": {
-        "RESY_EMAIL": "you@example.com",
-        "RESY_PASSWORD": "yourpassword"
-      }
-    }
-  }
-}
-```
-
-Or place `.env` in the project directory with `RESY_EMAIL=` and `RESY_PASSWORD=`.
+Then point `.mcp.json` at `/path/to/resy-mcp/dist/bundle.js` (`"command": "node"`). Any of the optional env vars below can go in that entry's `env` block or in a `.env` next to the repo.
 
 ## Authentication
 
-- `RESY_EMAIL` + `RESY_PASSWORD` are required. The client logs in lazily on first request via `POST /3/auth/password`, caches the returned token for the process lifetime, and re-logs automatically on 401 / 419 / auth-like 500 responses.
-- `RESY_API_KEY` is optional. If unset, the client uses the public web-app key baked into resy.com's JS bundle. Override only if Resy rotates it.
+The client picks an auth path on first request, in this priority order:
+
+1. **`RESY_AUTH_TOKEN`** — a pre-obtained `x-resy-auth-token`, used verbatim. Overrides everything (CI / power users).
+2. **`RESY_EMAIL` + `RESY_PASSWORD`** — optional password login via `POST /3/auth/password`. Only needed on a host with no browser.
+3. **ContextMint Bridge (default)** — with neither of the above set, one `/3/auth/refresh` call runs through your signed-in resy.com tab and returns a token; every later call is direct. Set `RESY_DISABLE_FETCHPROXY=1` to turn this path off.
+
+Never ask a bridge user for their Resy password — path 3 exists so they don't have to hand it over.
+
+The minted token is cached on disk (`$MCP_DATA_DIR/.resy-mcp/token.json`; `RESY_TOKEN_CACHE=false` turns it off, `RESY_TOKEN_FILE` moves it), so a restart doesn't need a fresh sign-in. A token lifted from the browser expires after 24 hours and is then re-minted through the tab. A 401, 419 or auth-shaped 500 clears the token and re-mints it once — except an auth-shaped 500 on a write (book/cancel), which is reported as outcome-unknown and never replayed: check `resy_list_reservations` before retrying.
+
+`RESY_API_KEY` is optional: the public web-app key is captured from your tab and cached, so set it only to pin a specific key. Other knobs: `RESY_CAPTURE_TIMEOUT` (seconds to wait for the bridge capture, default 30), `RESY_WS_PORT` (bridge port, default 37149), `RESY_API_KEY_FILE`.
+
+`resy_book` and `resy_cancel` ask for confirmation before they act; the `MCP_CONFIRM_MODE` / `MCP_CONFIRM_ELICITATION` / `MCP_CONFIRM_TTL_SECONDS` / `MCP_CONFIRM_SECRET` knobs are documented in the README's Confirmations section.
 
 ## Tools
 
