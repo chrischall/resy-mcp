@@ -75,6 +75,22 @@ RESY_DISABLE_FETCHPROXY=1
 
 For MCPB / Claude Desktop install, the packaged manifest prompts for all three optional inputs — leave them blank to route through ContextMint Bridge instead.
 
+### Environment
+
+Every variable is optional.
+
+| variable | default | |
+|---|---|---|
+| `RESY_AUTH_TOKEN` | unset | Auth path 1: a pre-obtained `x-resy-auth-token`, used verbatim. Overrides everything. |
+| `RESY_EMAIL` / `RESY_PASSWORD` | unset | Auth path 2: password login. Only needed on a host with no browser. |
+| `RESY_DISABLE_FETCHPROXY` | unset | `1` turns off the ContextMint Bridge path (path 3). |
+| `RESY_TOKEN_CACHE` | on | `false` disables the on-disk token cache. A bridge-minted token is cached for at most 24 hours. |
+| `RESY_TOKEN_FILE` | `$MCP_DATA_DIR/.resy-mcp/token.json` | Token cache path. |
+| `RESY_API_KEY` | captured | Pins the web-app api key, beating the key captured from your tab and the built-in default. Rotation is handled without it. |
+| `RESY_API_KEY_FILE` | `$MCP_DATA_DIR/.resy-mcp/api-key.json` | Api-key cache path (stores the bare key only). |
+| `RESY_CAPTURE_TIMEOUT` | `30` | Seconds to wait for your tab to make an API call the bridge can read the token from. |
+| `RESY_WS_PORT` | `37149` | Bridge concentrator port. Every fetchproxy MCP on one machine shares it, so move it for all of them or none (local dev, tests, or a hosted registration's bridge port). |
+
 ## Confirmations
 
 `resy_book` and `resy_cancel` ask you to confirm before they change anything. A client that can show a confirmation prompt (Claude Code) shows one, unless `MCP_CONFIRM_ELICITATION=off`. On a client that cannot, the first call returns a preview and a `confirmToken`, and only a repeat call with that token goes ahead:
