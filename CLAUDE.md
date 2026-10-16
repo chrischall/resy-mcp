@@ -154,7 +154,7 @@ Write a failing test before implementation. Keep tool tests in `tests/tools/<nam
 .claude-plugin/
   plugin.json       # Claude Code plugin manifest (points at ./.mcp.json + ./skills/)
   marketplace.json  # Marketplace catalog entry
-.mcp.json           # MCP client config for plugin installs (uses ${CLAUDE_PLUGIN_ROOT})
+.mcp.json           # MCP client config for plugin installs (launches the published package: npx -y resy-mcp)
 manifest.json       # MCPB / Claude Desktop user-config + tool catalog
 server.json         # modelcontextprotocol/registry entry (OIDC publish)
 skills/resy/SKILL.md  # Claude Code skill — teaches Claude when/how to use the tools
