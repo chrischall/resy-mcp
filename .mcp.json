@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "resy": {
-      "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/bundle.js"],
+      "command": "npx",
+      "args": ["-y", "resy-mcp"],
       "env": {
         "RESY_EMAIL": "${RESY_EMAIL}",
         "RESY_PASSWORD": "${RESY_PASSWORD}"
