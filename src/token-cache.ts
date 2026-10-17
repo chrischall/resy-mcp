@@ -1,5 +1,6 @@
 import {
   createFileStatePersistence,
+  isBearerTokens,
   resolveStateFile,
   type BearerTokens,
   type SyncStatePersistence,
@@ -14,27 +15,6 @@ export function tokenCachePath(env: NodeJS.ProcessEnv = process.env): string {
     subdir: '.resy-mcp',
     fileName: 'token.json',
   });
-}
-
-/**
- * Guard the stored record.
- *
- * `expiresAt` must be a real number here, which is the reason `NEVER_EXPIRES` in
- * `client.ts` is a far-future constant rather than `Infinity`: JSON has no
- * infinity literal, so `JSON.stringify` writes `null` and the value comes back a
- * non-number. A cache holding that sentinel would be written on every mint and
- * rejected on every load — doing nothing, silently, while every "it saves" test
- * still passed.
- */
-function isToken(raw: unknown): raw is BearerTokens {
-  if (raw === null || typeof raw !== 'object') return false;
-  const t = raw as Partial<BearerTokens>;
-  return (
-    typeof t.accessToken === 'string' &&
-    t.accessToken !== '' &&
-    typeof t.expiresAt === 'number' &&
-    (t.refreshToken === undefined || typeof t.refreshToken === 'string')
-  );
 }
 
 /**
@@ -96,7 +76,12 @@ export function createTokenCache(
   return createFileStatePersistence<BearerTokens>({
     filePath: tokenCachePath(env),
     boundTo,
-    validate: (raw) => (isToken(raw) ? raw : null),
+    // `isBearerTokens` requires a finite numeric `expiresAt`, which is why
+    // `NEVER_EXPIRES` in `client.ts` is a far-future constant rather than
+    // `Infinity`: JSON has no infinity literal, so `JSON.stringify` writes
+    // `null` and the value comes back a non-number. A cache holding that
+    // sentinel would be written on every mint and rejected on every load.
+    validate: (raw) => (isBearerTokens(raw) ? raw : null),
   });
 }
 
