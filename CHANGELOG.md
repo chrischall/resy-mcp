@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.5](https://github.com/chrischall/resy-mcp/compare/v1.3.4...v1.3.5) (2026-10-17)
+
+
+### Refactor
+
+* **cache:** validate the cached token with mcp-utils isBearerTokens ([#290](https://github.com/chrischall/resy-mcp/issues/290)) ([a339e8d](https://github.com/chrischall/resy-mcp/commit/a339e8d3076173fd7c7c3c77ab0243cf7b152376))
+
 ## [1.3.4](https://github.com/chrischall/resy-mcp/compare/v1.3.3...v1.3.4) (2026-10-16)
 
 
