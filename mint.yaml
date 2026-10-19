@@ -4,6 +4,15 @@ slug: resy
 summary: >-
   Resy reservation management for Claude — search venues, book tables,
   manage reservations and priority notify
+examples:
+  - prompt: >-
+      Find somewhere in the West Village with a table for 2 this Friday around
+      7:30pm.
+    note: Searches venues with live availability for the date and party size.
+  - prompt: What reservations do I have coming up on Resy?
+    note: Lists your upcoming bookings; read-only.
+  - prompt: Which restaurants am I on a Priority Notify waitlist for right now?
+    note: Lists your Notify subscriptions; read-only.
 #
 # Hosting note (a comment, not user-facing summary text): this is a
 # BROWSER-BRIDGE MCP — it reaches its site through the user's signed-in
