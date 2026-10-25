@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.6](https://github.com/chrischall/resy-mcp/compare/v1.3.5...v1.3.6) (2026-10-25)
+
+
+### Bug Fixes
+
+* **deps:** bump dotenv from 18.0.6 to 18.0.8 in the production-dependencies group ([#294](https://github.com/chrischall/resy-mcp/issues/294)) ([104921a](https://github.com/chrischall/resy-mcp/commit/104921a5238392cec83816c363534c59c68879fa))
+* **deps:** bump the production-dependencies group with 2 updates ([#299](https://github.com/chrischall/resy-mcp/issues/299)) ([74b923d](https://github.com/chrischall/resy-mcp/commit/74b923d4373baed742d69d7f9cccdb45e965234a))
+
+
+### Documentation
+
+* **mint:** add sample prompts for the public catalog ([#297](https://github.com/chrischall/resy-mcp/issues/297)) ([19d119c](https://github.com/chrischall/resy-mcp/commit/19d119c857cb6761de57e42add328c30ccc8c34c))
+
 ## [1.3.5](https://github.com/chrischall/resy-mcp/compare/v1.3.4...v1.3.5) (2026-10-17)
 
 
