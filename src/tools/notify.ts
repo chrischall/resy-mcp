@@ -4,6 +4,7 @@ import { viewArg, viewResponse } from '../view.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import type { ResyClient } from '../client.js';
 import { minifiedResult } from '../mcp.js';
+import { LOOKUP_META, NOTIFY_META } from './hints.js';
 
 interface RawNotifyEntry {
   specs?: {
@@ -48,6 +49,7 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
       inputSchema: z.object({
         view: viewArg(),
       }),
+      _meta: LOOKUP_META,
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ view }) => {
@@ -73,6 +75,7 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
     {
       description:
         "Subscribe to Priority Notify for a venue/date/party size. Resy emails you when a matching slot opens. time_start / time_end bound the window you're willing to accept (HH:MM, 24h). Resy's notify booking window only accepts near-term dates (~30 days out).",
+      _meta: NOTIFY_META,
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
       inputSchema: z.object({
         venue_id: z.number().int().positive(),
@@ -115,6 +118,7 @@ export function registerNotifyTools(server: McpServer, client: ResyClient): void
     {
       description:
         'Cancel a Priority Notify subscription by notify_id. The tool looks up the full spec from resy_list_notify internally — no other input needed.',
+      _meta: NOTIFY_META,
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
       inputSchema: z.object({ notify_id: z.number().int().positive() }),
     },

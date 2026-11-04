@@ -3,6 +3,7 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import type { ResyClient } from '../client.js';
 import { minifiedResult } from '../mcp.js';
 import { viewArg, viewResponse } from '../view.js';
+import { FAVORITE_META, LOOKUP_META } from './hints.js';
 
 interface RawFavoriteEntry {
   venue?: {
@@ -27,6 +28,7 @@ export function registerFavoriteTools(server: McpServer, client: ResyClient): vo
       inputSchema: z.object({
         view: viewArg(),
       }),
+      _meta: LOOKUP_META,
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ view }) => {
@@ -54,6 +56,7 @@ export function registerFavoriteTools(server: McpServer, client: ResyClient): vo
     'resy_add_favorite',
     {
       description: 'Add a venue to the user\'s favorites by venue_id.',
+      _meta: FAVORITE_META,
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
       inputSchema: z.object({ venue_id: z.number().int().positive() }),
     },
@@ -68,6 +71,7 @@ export function registerFavoriteTools(server: McpServer, client: ResyClient): vo
     'resy_remove_favorite',
     {
       description: 'Remove a venue from the user\'s favorites by venue_id.',
+      _meta: FAVORITE_META,
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
       inputSchema: z.object({ venue_id: z.number().int().positive() }),
     },

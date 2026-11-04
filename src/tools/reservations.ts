@@ -16,6 +16,7 @@ import type { McpServer } from '@modelcontextprotocol/server';
 import type { ResyClient } from '../client.js';
 import { minifiedResult } from '../mcp.js';
 import { findSlotsAtVenue, type FormattedSlot } from './venues.js';
+import { BOOK_META, CANCEL_META, RESERVATIONS_META } from './hints.js';
 
 /**
  * Real Resy shape from GET /3/user/reservations (verified via smoke):
@@ -104,6 +105,24 @@ function formatReservation(
  */
 function upcomingBoundaryYMD(): string {
   return new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+const BRIEF_MAX = 120;
+
+/**
+ * One reservation as one line, `<venue> <HH:MM>, party of <n> — <ISO date | no
+ * date> — <booked|past>`, at most 120 characters (the venue name is shortened).
+ * The date is the venue-local `day` plus the slot time when Resy gives one;
+ * "past" uses the same Anywhere-on-Earth boundary as `scope`, so the two never
+ * disagree about which reservations are still ahead.
+ */
+export function briefLine(r: ReturnType<typeof formatReservation>, today: string): string {
+  const when = r.date ? (r.time ? `${r.date}T${r.time}` : r.date) : 'no date';
+  const status = r.date && r.date < today ? 'past' : 'booked';
+  const rest = `${r.time ? ` ${r.time}` : ''}, party of ${r.party_size} — ${when} — ${status}`;
+  const room = BRIEF_MAX - rest.length;
+  const name = r.venue_name.length > room ? `${r.venue_name.slice(0, Math.max(room - 1, 0))}…` : r.venue_name;
+  return `${name}${rest}`;
 }
 
 // ─── resy_book helpers ────────────────────────────────────────────────
@@ -432,12 +451,17 @@ export function registerReservationTools(
     {
       description:
         "List the user's Resy reservations. Defaults to upcoming; pass scope=\"past\" or \"all\" to broaden. Each result includes the resy_token needed for cancellation, plus occasion/special_request/cancellability.",
+      _meta: RESERVATIONS_META,
       annotations: { readOnlyHint: true, openWorldHint: true },
       inputSchema: z.object({
         scope: z.enum(['upcoming', 'past', 'all']).optional(),
+        view: z.enum(['full', 'brief']).optional().describe(
+          '"full" (default) returns each reservation as JSON; "brief" returns one line per reservation: ' +
+            '<venue> <HH:MM>, party of <n> — <YYYY-MM-DDTHH:MM or "no date"> — <booked|past>.'
+        ),
       }),
     },
-    async ({ scope }) => {
+    async ({ scope, view }) => {
       const scopeResolved = scope ?? 'upcoming';
       const data = await client.request<ReservationsResponse>(
         'GET',
@@ -451,6 +475,10 @@ export function registerReservationTools(
         // YYYY-MM-DD strings compare lexicographically = chronologically
         return scopeResolved === 'upcoming' ? day >= today : day < today;
       });
+      if (view === 'brief') {
+        const text = filtered.map((r) => briefLine(formatReservation(r, venues), today)).join('\n');
+        return { content: [{ type: 'text' as const, text }] };
+      }
       return minifiedResult(filtered.map((r) => formatReservation(r, venues)));
     }
   );
@@ -465,6 +493,7 @@ export function registerReservationTools(
         ' Once confirmed, the result carries `cancelled` (boolean: true only when the cancellation is confirmed) and ' +
         '`outcome` ("cancelled", "not_cancelled", or "unknown"). On "unknown", `cancelled` is false but the ' +
         'reservation MAY have been cancelled — check resy_list_reservations before retrying.',
+      _meta: CANCEL_META,
       annotations: {
         ...toolAnnotations({ title: 'Cancel a Resy reservation', readOnly: false, openWorld: true }),
         destructiveHint: true,
@@ -626,6 +655,7 @@ export function registerReservationTools(
         'allow_duplicate:true to book another anyway. ' +
         "Uses the user's default payment method unless payment_method_id is supplied (it must be one of the " +
         'saved cards from resy_list_payment_methods; the preview names the card by brand and last-4).',
+      _meta: BOOK_META,
       annotations: {
         ...toolAnnotations({ title: 'Book a Resy reservation', readOnly: false, openWorld: true }),
         destructiveHint: true,
