@@ -133,6 +133,15 @@ describe('_meta.mint on tools/list', () => {
 describe('resy_list_reservations view: brief', () => {
   const BRIEF = /^.+ — (\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?|no date) — .+$/;
 
+  /** The brief answer's envelope: venue names are third-party text. */
+  const envelope = (result: { content: unknown[] }) =>
+    JSON.parse((result.content[0] as { text: string }).text) as {
+      untrusted_content: boolean;
+      note: string;
+      data: string[];
+    };
+  const briefLines = (result: { content: unknown[] }) => envelope(result).data;
+
   it('answers one line per reservation, ≤ 120 chars, title — ISO date — status', async () => {
     request.mockResolvedValue({
       reservations: [
@@ -144,7 +153,7 @@ describe('resy_list_reservations view: brief', () => {
     const h = await harness();
     const result = await h.callTool('resy_list_reservations', { view: 'brief' });
     await h.close();
-    const lines = (result.content[0] as { text: string }).text.split('\n');
+    const lines = briefLines(result);
     expect(lines).toEqual([
       'Test Bistro 19:30, party of 2 — 2099-12-31T19:30 — booked',
       'Sample Grill 18:00, party of 4 — 2099-12-30T18:00 — booked',
@@ -166,12 +175,57 @@ describe('resy_list_reservations view: brief', () => {
     const h = await harness();
     const result = await h.callTool('resy_list_reservations', { view: 'brief', scope: 'all' });
     await h.close();
-    const lines = (result.content[0] as { text: string }).text.split('\n');
+    const lines = briefLines(result);
     expect(lines).toHaveLength(2);
     expect(lines[0].length).toBeLessThanOrEqual(120);
     expect(lines[0]).toMatch(/…, party of 2 — no date — booked$/);
     expect(lines[1]).toBe('Old Place 20:00, party of 3 — 2000-01-01T20:00 — past');
     for (const l of lines) expect(l).toMatch(BRIEF);
+  });
+
+  it('rides inside the untrusted-data envelope, minified, note first', async () => {
+    request.mockResolvedValue({
+      reservations: [{ resy_token: 'rr://a', venue: { id: 1 }, day: '2099-12-31', time_slot: '19:30:00', num_seats: 2 }],
+      venues: { '1': { name: 'Test Bistro' } },
+    });
+    const h = await harness();
+    const result = await h.callTool('resy_list_reservations', { view: 'brief' });
+    await h.close();
+    const text = (result.content[0] as { text: string }).text;
+    expect(text).not.toContain('\n');
+    expect(Object.keys(JSON.parse(text))).toEqual(['untrusted_content', 'note', 'data']);
+    const env = envelope(result);
+    expect(env.untrusted_content).toBe(true);
+    expect(env.note).toMatch(/venue/i);
+    expect(env.data).toEqual(['Test Bistro 19:30, party of 2 — 2099-12-31T19:30 — booked']);
+  });
+
+  it('answers the single note line "-- none" when there are no reservations', async () => {
+    request.mockResolvedValue({ reservations: [], venues: {} });
+    const h = await harness();
+    const result = await h.callTool('resy_list_reservations', { view: 'brief' });
+    await h.close();
+    expect(briefLines(result)).toEqual(['-- none']);
+  });
+
+  it('escapes a venue name that starts with "-- " or "\\" with one leading backslash, and still fits 120', async () => {
+    request.mockResolvedValue({
+      reservations: [
+        { resy_token: 'rr://a', venue: { id: 1 }, day: '2099-12-31', time_slot: '19:30:00', num_seats: 2 },
+        { resy_token: 'rr://b', venue: { id: 2 }, day: '2099-12-30', time_slot: '18:00:00', num_seats: 4 },
+        { resy_token: 'rr://c', venue: { id: 3 }, day: '2099-12-29', time_slot: '18:00:00', num_seats: 4 },
+      ],
+      venues: { '1': { name: '-- none' }, '2': { name: '\\Slash Bar' }, '3': { name: '-- ' + 'Y'.repeat(200) } },
+    });
+    const h = await harness();
+    const result = await h.callTool('resy_list_reservations', { view: 'brief' });
+    await h.close();
+    const lines = briefLines(result);
+    expect(lines[0]).toBe('\\-- none 19:30, party of 2 — 2099-12-31T19:30 — booked');
+    expect(lines[1]).toBe('\\\\Slash Bar 18:00, party of 4 — 2099-12-30T18:00 — booked');
+    expect(lines[2].startsWith('\\-- YYY')).toBe(true);
+    expect(lines[2]).toMatch(/… 18:00, party of 4 — 2099-12-29T18:00 — booked$/);
+    for (const l of lines) expect(l.length).toBeLessThanOrEqual(120);
   });
 
   it('keeps the full JSON answer by default', async () => {

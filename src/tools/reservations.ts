@@ -11,6 +11,8 @@ import {
   normalizeTime,
   requireConfirmationWithFallback,
   toolAnnotations,
+  untrustedEnvelope,
+  UNTRUSTED_CONTENT_RULE,
 } from '@chrischall/mcp-utils';
 import type { McpServer } from '@modelcontextprotocol/server';
 import type { ResyClient } from '../client.js';
@@ -111,18 +113,37 @@ const BRIEF_MAX = 120;
 
 /**
  * One reservation as one line, `<venue> <HH:MM>, party of <n> — <ISO date | no
- * date> — <booked|past>`, at most 120 characters (the venue name is shortened).
- * The date is the venue-local `day` plus the slot time when Resy gives one;
- * "past" uses the same Anywhere-on-Earth boundary as `scope`, so the two never
- * disagree about which reservations are still ahead.
+ * date> — <booked|past>`, at most 120 characters as a WHOLE: everything after
+ * the venue name is this server's own bounded text, so the name (the one
+ * third-party field) is what shortens. A name that starts with `-- ` or `\` is
+ * escaped with one leading `\` BEFORE it is measured, so a venue can never pass
+ * itself off as a note line (`-- none`) and the escape never pushes the line
+ * past 120. The date is the venue-local `day` plus the slot time when Resy
+ * gives one; "past" uses the same Anywhere-on-Earth boundary as `scope`, so
+ * the two never disagree about which reservations are still ahead.
  */
 export function briefLine(r: ReturnType<typeof formatReservation>, today: string): string {
   const when = r.date ? (r.time ? `${r.date}T${r.time}` : r.date) : 'no date';
   const status = r.date && r.date < today ? 'past' : 'booked';
   const rest = `${r.time ? ` ${r.time}` : ''}, party of ${r.party_size} — ${when} — ${status}`;
   const room = BRIEF_MAX - rest.length;
-  const name = r.venue_name.length > room ? `${r.venue_name.slice(0, Math.max(room - 1, 0))}…` : r.venue_name;
+  const raw = r.venue_name.startsWith('-- ') || r.venue_name.startsWith('\\') ? `\\${r.venue_name}` : r.venue_name;
+  const name = raw.length > room ? `${raw.slice(0, Math.max(room - 1, 0))}…` : raw;
   return `${name}${rest}`;
+}
+
+/** Who writes the brief lines' text: the one third-party field is the venue name. */
+const BRIEF_WHO_WROTE = 'Venue names are written by the restaurants on Resy.';
+
+/**
+ * The brief answer: the lines inside the fleet untrusted-data envelope as
+ * `data: string[]`, minified, note first — `-- none` when there is nothing.
+ * Resy answers the whole reservation list in one response (no paging), so
+ * there is no `-- N of M shown` / `-- more` note to carry.
+ */
+export function briefResponse(lines: string[]): ReturnType<typeof minifiedResult> {
+  const data = lines.length > 0 ? lines : ['-- none'];
+  return minifiedResult(untrustedEnvelope(data, { note: `${BRIEF_WHO_WROTE} ${UNTRUSTED_CONTENT_RULE}` }));
 }
 
 // ─── resy_book helpers ────────────────────────────────────────────────
@@ -457,7 +478,8 @@ export function registerReservationTools(
         scope: z.enum(['upcoming', 'past', 'all']).optional(),
         view: z.enum(['full', 'brief']).optional().describe(
           '"full" (default) returns each reservation as JSON; "brief" returns one line per reservation: ' +
-            '<venue> <HH:MM>, party of <n> — <YYYY-MM-DDTHH:MM or "no date"> — <booked|past>.'
+            '<venue> <HH:MM>, party of <n> — <YYYY-MM-DDTHH:MM or "no date"> — <booked|past>, ' +
+            'inside the untrusted-data envelope as data: string[] (venue names are third-party text); "-- none" when there are none.'
         ),
       }),
     },
@@ -476,8 +498,7 @@ export function registerReservationTools(
         return scopeResolved === 'upcoming' ? day >= today : day < today;
       });
       if (view === 'brief') {
-        const text = filtered.map((r) => briefLine(formatReservation(r, venues), today)).join('\n');
-        return { content: [{ type: 'text' as const, text }] };
+        return briefResponse(filtered.map((r) => briefLine(formatReservation(r, venues), today)));
       }
       return minifiedResult(filtered.map((r) => formatReservation(r, venues)));
     }
