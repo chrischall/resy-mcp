@@ -4,6 +4,7 @@ import { viewArg, viewResponse } from '../view.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import type { ResyClient } from '../client.js';
 import { minifiedResult } from '../mcp.js';
+import { LOOKUP_META } from './hints.js';
 
 export const DEFAULT_LAT = 40.7128;
 export const DEFAULT_LNG = -73.9876;
@@ -131,6 +132,7 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
     {
       description:
         'Search Resy for restaurants with availability. Returns venues including any bookable slot tokens for the requested date + party size. Defaults to NYC geo if lat/lng omitted.',
+      _meta: LOOKUP_META,
       annotations: { readOnlyHint: true, openWorldHint: true },
       inputSchema: z.object({
         view: viewArg(),
@@ -177,6 +179,7 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
     {
       description:
         'List available reservation slots at a specific venue for a date + party size. Returns slot config_tokens suitable for booking. Tokens expire quickly; book soon after fetching.',
+      _meta: LOOKUP_META,
       annotations: { readOnlyHint: true, openWorldHint: true },
       inputSchema: z.object({
         venue_id: z.number().int().positive(),
@@ -193,6 +196,7 @@ export function registerVenueTools(server: McpServer, client: ResyClient): void 
     'resy_get_venue',
     {
       description: 'Get full details for a single Resy venue by id.',
+      _meta: LOOKUP_META,
       annotations: { readOnlyHint: true, openWorldHint: true },
       inputSchema: z.object({
         venue_id: z.number().int().positive(),

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/server';
 import type { ResyClient } from '../client.js';
 import { viewArg, viewResponse } from '../view.js';
+import { LOOKUP_META } from './hints.js';
 
 interface RawPaymentMethod {
   id?: number;
@@ -32,6 +33,7 @@ export function registerUserTools(server: McpServer, client: ResyClient): void {
     inputSchema: z.object({
       view: viewArg(),
     }),
+    _meta: LOOKUP_META,
     annotations: { readOnlyHint: true, openWorldHint: true },
   }, async ({ view }) => {
     // This is the ONE response in this server that carries a media URL, so it
@@ -55,6 +57,7 @@ export function registerUserTools(server: McpServer, client: ResyClient): void {
     inputSchema: z.object({
       view: viewArg(),
     }),
+    _meta: LOOKUP_META,
     annotations: { readOnlyHint: true, openWorldHint: true },
   }, async ({ view }) => {
     const data = await client.request<ResyUser>('GET', '/2/user');

@@ -76,7 +76,7 @@ The minted token is cached on disk (`$MCP_DATA_DIR/.resy-mcp/token.json`; `RESY_
 | Tool | Description |
 |------|-------------|
 | `resy_book(venue_id, date, party_size, desired_time?, slot_type?, terms_token?, allow_closest_time?, lat?, lng?, payment_method_id?, allow_duplicate?, confirmToken?)` | Composite: find fresh slot → details → book. It books ONLY the exact previewed slot. `desired_time` is "HH:MM" (24h); an unavailable time returns the available times unless `allow_closest_time: true` previews the nearest. `slot_type` picks a seating (Dining Room / Bar / Patio) when several share a time. On a client without prompts, the preview comes back as `confirmation-required` with a `confirmToken` bound to that slot's time, seating type and terms; after the user approves, repeat the call with the preview's time as `desired_time` and the `confirmToken` (see `MCP_CONFIRM_MODE`). On a client with prompts (unless the server sets `MCP_CONFIRM_ELICITATION=off`, which sends every client down the `confirmToken` path), call again with `desired_time` + `slot_type` + `terms_token` (a fingerprint of the seating type and cancellation/payment terms) from the preview and the user is prompted. If the slot, its type or its terms changed, nothing is booked and a fresh preview is returned. The booking refuses if you already hold a reservation at that venue that date (e.g. an earlier timed-out call that went through) unless `allow_duplicate: true` — checked before you are asked to confirm, so an approval is never wasted; with `allow_duplicate: true` the preview lists the existing reservation(s). Uses default payment method unless `payment_method_id` is supplied; either way the preview names the card (brand and last-4), and an id that is not one of your saved cards is refused. |
-| `resy_list_reservations(scope?)` | List reservations. `scope`: `upcoming` (default), `past`, or `all`. Each result includes the `resy_token` needed for cancellation. |
+| `resy_list_reservations(scope?, view?)` | List reservations. `scope`: `upcoming` (default), `past`, or `all`. Each result includes the `resy_token` needed for cancellation. `view: "brief"` answers one line per reservation instead: `<venue> <HH:MM>, party of <n> — <YYYY-MM-DDTHH:MM or no date> — <booked\|past>`. |
 | `resy_cancel(resy_token, confirmToken?)` | Cancel by `resy_token` (`rr://…`). Asks the user to confirm first (the Resy account, venue, date, time, party size, any fee): a prompt where the client supports one (unless `MCP_CONFIRM_ELICITATION=off`), otherwise a preview plus `confirmToken` that a repeat call passes back. Returns `cancelled` (always a boolean — `true` only when confirmed) and `outcome` (`cancelled` / `not_cancelled` / `unknown`), set from an explicit success/failure in Resy's response, and otherwise by checking whether the reservation is still listed. On `outcome: "unknown"` the reservation may still have been cancelled — check `resy_list_reservations` before retrying. |
 
 ### Favorites
@@ -125,17 +125,41 @@ not do.
 `view: "full"` returns the record untouched. There is **no `raw` rung**: `full`
 already IS the un-stripped response, so a third value could only alias it.
 
-The other ten tools take no `view`:
+`resy_list_reservations` takes a different `view`: `"full"` (the default, its
+JSON records) or `"brief"` (one line per reservation, at most 120 characters,
+for a host that reads several sources at once — see "In context groups"). It
+has no compact rung because its records are built field by field with no media
+URL in them.
 
-- **`resy_find_slots`, `resy_get_venue` and `resy_list_reservations`** build
-  their answers field by field (`formatSlot`, `formatVenue`,
-  `formatReservation`). No upstream payload survives into the response, and no
-  media URL with it — there is nothing for the rung to remove.
+The other nine tools take no `view`:
+
+- **`resy_find_slots` and `resy_get_venue`** build their answers field by field
+  (`formatSlot`, `formatVenue`). No upstream payload survives into the
+  response, and no media URL with it — there is nothing for the rung to remove.
 - **`resy_book`, `resy_cancel`, `resy_add_favorite`, `resy_remove_favorite`,
   `resy_add_notify`, `resy_remove_notify`** are writes. A write's response is a
   receipt — a `resy_token`, a confirmation, a status — with nothing to strip and
   everything to keep.
 - **`resy_healthcheck`** answers reachability and auth.
+
+## In context groups
+
+On a host that groups connectors by context (mcp-host's context groups), every
+tool here except `resy_healthcheck` is in the **food** group.
+
+- **Canonical read:** `resy_list_reservations` answers *what's on* — the
+  person's upcoming tables — and the host reads it with `view: "brief"`. It
+  takes no subject (a Resy session is one account, with nothing to choose
+  between) and no date range (only `scope`).
+- Everything else is a `lookup` (profile, cards, venue search, slots,
+  favorites, the notify list) or a `change` (book, cancel, favorite, notify).
+- A compound ask reads this beside the group's other sources: *"what's on this
+  week — and do we have dinner anywhere?"* answers the reservations as one line
+  each.
+- When this server is minting its token through the browser bridge (no
+  `RESY_AUTH_TOKEN` or password set) and no signed-in resy.com tab is
+  reachable, the group answers that Resy **needs your browser open** rather
+  than reporting no reservations.
 
 ## Workflows
 
