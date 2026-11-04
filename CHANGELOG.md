@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/chrischall/resy-mcp/compare/v1.4.0...v1.4.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **brief:** align the brief view with the fleet contract ([#303](https://github.com/chrischall/resy-mcp/issues/303)) ([9acbc7f](https://github.com/chrischall/resy-mcp/commit/9acbc7ff81003a4d19f9b9ba22db85fae5effed9))
+
 ## [1.4.0](https://github.com/chrischall/resy-mcp/compare/v1.3.5...v1.4.0) (2026-11-04)
 
 
