@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.4.0](https://github.com/chrischall/resy-mcp/compare/v1.3.5...v1.4.0) (2026-11-04)
+
+
+### Features
+
+* context-group hints, a brief view on the reservations list ([#302](https://github.com/chrischall/resy-mcp/issues/302)) ([e509baa](https://github.com/chrischall/resy-mcp/commit/e509baa315a6951c55b42af05dbf9a0d94c11c4f))
+
+
+### Bug Fixes
+
+* **deps:** bump dotenv from 18.0.6 to 18.0.8 in the production-dependencies group ([#294](https://github.com/chrischall/resy-mcp/issues/294)) ([104921a](https://github.com/chrischall/resy-mcp/commit/104921a5238392cec83816c363534c59c68879fa))
+* **deps:** bump the production-dependencies group with 2 updates ([#299](https://github.com/chrischall/resy-mcp/issues/299)) ([74b923d](https://github.com/chrischall/resy-mcp/commit/74b923d4373baed742d69d7f9cccdb45e965234a))
+* **deps:** bump the production-dependencies group with 3 updates ([#301](https://github.com/chrischall/resy-mcp/issues/301)) ([dc22237](https://github.com/chrischall/resy-mcp/commit/dc222375cc61e4e3331444eec481c009c28c3697))
+
+
+### Documentation
+
+* **mint:** add sample prompts for the public catalog ([#297](https://github.com/chrischall/resy-mcp/issues/297)) ([19d119c](https://github.com/chrischall/resy-mcp/commit/19d119c857cb6761de57e42add328c30ccc8c34c))
+
 ## [1.3.5](https://github.com/chrischall/resy-mcp/compare/v1.3.4...v1.3.5) (2026-10-17)
 
 
