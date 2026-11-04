@@ -148,9 +148,12 @@ On a host that groups connectors by context (mcp-host's context groups), every
 tool here except `resy_healthcheck` is in the **food** group.
 
 - **Canonical read:** `resy_list_reservations` answers *what's on* — the
-  person's upcoming tables — and the host reads it with `view: "brief"`. It
-  takes no subject (a Resy session is one account, with nothing to choose
-  between) and no date range (only `scope`).
+  person's upcoming tables — and the host reads it with `view: "brief"`. The
+  brief lines ride inside the untrusted-data envelope (`data: string[]`,
+  because venue names are the restaurants' own text), a venue name starting
+  `-- ` or `\` is escaped with one leading `\`, and an empty list answers the
+  single note line `-- none`. It takes no subject (a Resy session is one
+  account, with nothing to choose between) and no date range (only `scope`).
 - Everything else is a `lookup` (profile, cards, venue search, slots,
   favorites, the notify list) or a `change` (book, cancel, favorite, notify).
 - A compound ask reads this beside the group's other sources: *"what's on this
