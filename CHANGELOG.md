@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.2](https://github.com/chrischall/resy-mcp/compare/v1.4.1...v1.4.2) (2026-11-08)
+
+
+### Bug Fixes
+
+* **deps:** bump @chrischall/mcp-utils from 3.3.2 to 3.4.1 in the production-dependencies group ([#307](https://github.com/chrischall/resy-mcp/issues/307)) ([8041ecf](https://github.com/chrischall/resy-mcp/commit/8041ecfd07da0da026d0a629e640d4be91df3f89))
+
 ## [1.4.1](https://github.com/chrischall/resy-mcp/compare/v1.4.0...v1.4.1) (2026-11-04)
 
 
